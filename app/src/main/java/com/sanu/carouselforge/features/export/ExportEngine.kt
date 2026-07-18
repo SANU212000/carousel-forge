@@ -10,6 +10,7 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Rect
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.exifinterface.media.ExifInterface
@@ -180,13 +181,19 @@ class ExportEngine(
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, safeFileName(projectName))
             put(MediaStore.Images.Media.MIME_TYPE, PNG_MIME_TYPE)
-            put(
-                MediaStore.Images.Media.RELATIVE_PATH,
-                "${Environment.DIRECTORY_PICTURES}/$EXPORT_DIRECTORY",
-            )
-            put(MediaStore.Images.Media.IS_PENDING, 1)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(
+                    MediaStore.Images.Media.RELATIVE_PATH,
+                    "${Environment.DIRECTORY_PICTURES}/$EXPORT_DIRECTORY",
+                )
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
         }
-        val collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        } else {
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        }
         val uri = resolver.insert(collection, values)
             ?: throw IOException("MediaStore did not create an export destination")
         try {
@@ -195,9 +202,11 @@ class ExportEngine(
                     "PNG encoder failed"
                 }
             } ?: throw IOException("MediaStore output stream was unavailable")
-            values.clear()
-            values.put(MediaStore.Images.Media.IS_PENDING, 0)
-            resolver.update(uri, values, null, null)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                values.clear()
+                values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+            }
             return uri
         } catch (error: Exception) {
             resolver.delete(uri, null, null)

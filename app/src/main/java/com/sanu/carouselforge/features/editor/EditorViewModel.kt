@@ -172,11 +172,6 @@ class EditorViewModel(
         }
     }
 
-    override fun onCleared() {
-        (repository as? LocalProjectRepository)?.cancelPendingAutosave(projectId)
-        super.onCleared()
-    }
-
     private fun layerModel(layer: Layer, project: Project): LayerModel {
         val size = minOf(project.canvasWidth, project.canvasHeight) * DEFAULT_LAYER_FRACTION
         return LayerModel(

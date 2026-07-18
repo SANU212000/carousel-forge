@@ -1,11 +1,16 @@
 package com.sanu.carouselforge.navigation
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,6 +31,7 @@ import com.sanu.carouselforge.CarouselForgeApp
 import com.sanu.carouselforge.core.theme.AppTheme
 import com.sanu.carouselforge.features.editor.EditorScreen
 import com.sanu.carouselforge.features.editor.EditorViewModel
+import com.sanu.carouselforge.features.editor.overlay.SafeZoneOverlay
 import com.sanu.carouselforge.features.export.ExportEngine
 import com.sanu.carouselforge.features.export.ExportScreen
 import com.sanu.carouselforge.features.export.ExportViewModel
@@ -83,7 +89,17 @@ fun CarouselForgeNavGraph(
                 onDismissRequest = navController::popBackStack,
                 title = { Text("Safe-zone preview") },
                 text = {
-                    Text("Keep important content outside the marked profile-avatar area.")
+                    Column(verticalArrangement = Arrangement.spacedBy(AppTheme.spacing.sm)) {
+                        Text("Keep important content outside the marked profile-avatar area.")
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1f)
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                        ) {
+                            SafeZoneOverlay(visible = true, slideIndex = 0)
+                        }
+                    }
                 },
                 confirmButton = {
                     TextButton(onClick = navController::popBackStack) { Text("Done") }

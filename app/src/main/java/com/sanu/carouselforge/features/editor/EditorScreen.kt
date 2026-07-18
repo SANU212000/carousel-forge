@@ -1,5 +1,6 @@
 package com.sanu.carouselforge.features.editor
 
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanu.carouselforge.core.error.userMessage
 import com.sanu.carouselforge.core.theme.AppTheme
@@ -35,9 +37,20 @@ fun EditorScreen(
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     val imagePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent(),
-        onResult = { uri -> uri?.let { viewModel.addImage(it.toString()) } },
+        contract = ActivityResultContracts.OpenDocument(),
+        onResult = { uri ->
+            uri?.let {
+                runCatching {
+                    context.contentResolver.takePersistableUriPermission(
+                        it,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                }
+                viewModel.addImage(it.toString())
+            }
+        },
     )
 
     when (val current = state) {
@@ -65,7 +78,7 @@ fun EditorScreen(
                     gridEnabled = current.gridSnapEnabled,
                     onGridChanged = viewModel::setGridSnapEnabled,
                     onBack = onBack,
-                    onAddImage = { imagePicker.launch("image/*") },
+                    onAddImage = { imagePicker.launch(arrayOf("image/*")) },
                     onSafeZone = onShowSafeZone,
                     onExport = onExport,
                 )
