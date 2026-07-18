@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
 import com.sanu.carouselforge.core.theme.AppTheme
@@ -42,6 +43,7 @@ fun EditorCanvas(
 
     Box(
         modifier = modifier
+            .testTag(EDITOR_CANVAS_TEST_TAG)
             .background(MaterialTheme.colorScheme.surface)
             .fillMaxSize(),
     ) {
@@ -124,3 +126,5 @@ fun EditorCanvas(
         }
     }
 }
+
+const val EDITOR_CANVAS_TEST_TAG = "editor_canvas"
