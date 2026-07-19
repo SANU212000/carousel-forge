@@ -47,6 +47,8 @@ class ProjectDaoInstrumentedTest {
             text = "Hello",
             x = 12f,
             y = 24f,
+            width = 400f,
+            height = 300f,
             scale = 1f,
             rotation = 0f,
             zIndex = 0,

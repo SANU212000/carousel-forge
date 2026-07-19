@@ -14,6 +14,8 @@ data class Layer(
     val text: String?,
     val x: Float,
     val y: Float,
+    val width: Float,
+    val height: Float,
     val scale: Float,
     val rotation: Float,
     val zIndex: Int,
@@ -24,6 +26,9 @@ data class Layer(
             "Layer image URI must be null or non-blank"
         }
         require(x.isFinite() && y.isFinite()) { "Layer position must be finite" }
+        require(width.isFinite() && height.isFinite() && width > 0f && height > 0f) {
+            "Layer dimensions must be finite and positive"
+        }
         require(scale.isFinite() && scale > 0f) { "Layer scale must be finite and positive" }
         require(rotation.isFinite()) { "Layer rotation must be finite" }
         require(type !in setOf(LayerType.IMAGE, LayerType.STICKER) || imageUri != null) {

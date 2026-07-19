@@ -74,7 +74,7 @@ class ExportEngine(
         val canvas = Canvas(output)
         canvas.drawColor(android.graphics.Color.WHITE)
         project.layers.sortedBy(Layer::zIndex).forEach { layer ->
-            drawLayer(canvas, layer, project, supersample)
+            drawLayer(canvas, layer, supersample)
         }
         return output
     }
@@ -82,26 +82,29 @@ class ExportEngine(
     private fun drawLayer(
         canvas: Canvas,
         layer: Layer,
-        project: Project,
         supersample: Int,
     ) {
-        val baseSize = minOf(project.canvasWidth, project.canvasHeight) * DEFAULT_LAYER_FRACTION
-        val targetSize = (baseSize * supersample).toInt()
+        val targetWidth = (layer.width * supersample).toInt()
+        val targetHeight = (layer.height * supersample).toInt()
         canvas.save()
         canvas.translate(layer.x * supersample, layer.y * supersample)
-        canvas.rotate(layer.rotation, targetSize / 2f, targetSize / 2f)
-        canvas.scale(layer.scale, layer.scale, targetSize / 2f, targetSize / 2f)
+        canvas.rotate(layer.rotation, targetWidth / 2f, targetHeight / 2f)
+        canvas.scale(layer.scale, layer.scale, targetWidth / 2f, targetHeight / 2f)
         when (layer.type) {
             LayerType.IMAGE, LayerType.STICKER -> {
                 val bitmap = layer.imageUri?.let {
-                    decodeWorkingBitmap(it, targetSize, targetSize)
+                    decodeWorkingBitmap(it, targetWidth, targetHeight)
                 }
                 if (bitmap != null) {
-                    val source = centerCropRect(bitmap.width, bitmap.height)
+                    val source = centerCropRect(
+                        width = bitmap.width,
+                        height = bitmap.height,
+                        targetAspectRatio = targetWidth.toFloat() / targetHeight,
+                    )
                     canvas.drawBitmap(
                         bitmap,
                         source,
-                        Rect(0, 0, targetSize, targetSize),
+                        Rect(0, 0, targetWidth, targetHeight),
                         IMAGE_PAINT,
                     )
                     bitmap.recycle()
@@ -111,17 +114,17 @@ class ExportEngine(
             LayerType.TEXT -> {
                 val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = android.graphics.Color.BLACK
-                    textSize = TEXT_SIZE_FRACTION * targetSize
+                    textSize = TEXT_SIZE_FRACTION * targetHeight
                 }
-                canvas.drawText(layer.text.orEmpty(), 0f, targetSize / 2f, paint)
+                canvas.drawText(layer.text.orEmpty(), 0f, targetHeight / 2f, paint)
             }
 
             LayerType.SHAPE -> {
                 canvas.drawRect(
                     0f,
                     0f,
-                    targetSize.toFloat(),
-                    targetSize.toFloat(),
+                    targetWidth.toFloat(),
+                    targetHeight.toFloat(),
                     SHAPE_PAINT,
                 )
             }
@@ -224,18 +227,23 @@ class ExportEngine(
         return runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory())
     }
 
-    private fun centerCropRect(width: Int, height: Int): Rect {
-        val side = minOf(width, height)
-        val left = (width - side) / 2
-        val top = (height - side) / 2
-        return Rect(left, top, left + side, top + side)
+    private fun centerCropRect(width: Int, height: Int, targetAspectRatio: Float): Rect {
+        val sourceAspectRatio = width.toFloat() / height
+        return if (sourceAspectRatio > targetAspectRatio) {
+            val cropWidth = (height * targetAspectRatio).toInt()
+            val left = (width - cropWidth) / 2
+            Rect(left, 0, left + cropWidth, height)
+        } else {
+            val cropHeight = (width / targetAspectRatio).toInt()
+            val top = (height - cropHeight) / 2
+            Rect(0, top, width, top + cropHeight)
+        }
     }
 
     private companion object {
         const val DEFAULT_SUPERSAMPLE = 3
         const val REDUCED_SUPERSAMPLE = 2
         const val HIGH_QUALITY_HEAP_BYTES = 2L * 1024L * 1024L * 1024L
-        const val DEFAULT_LAYER_FRACTION = 0.45f
         const val TEXT_SIZE_FRACTION = 0.12f
         const val PNG_QUALITY = 100
         const val PNG_MIME_TYPE = "image/png"

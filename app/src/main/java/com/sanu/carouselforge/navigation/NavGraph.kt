@@ -79,9 +79,6 @@ fun CarouselForgeNavGraph(
                 viewModel = viewModel,
                 onBack = navController::popBackStack,
                 onExport = { navController.navigate(ExportRoute(route.projectId)) },
-                onShowSafeZone = {
-                    navController.navigate(SafeZonePreviewRoute(route.projectId))
-                },
             )
         }
         dialog<SafeZonePreviewRoute> {

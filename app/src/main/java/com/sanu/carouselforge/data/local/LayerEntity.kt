@@ -1,5 +1,6 @@
 package com.sanu.carouselforge.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -29,6 +30,10 @@ data class LayerEntity(
     val text: String?,
     val x: Float,
     val y: Float,
+    @ColumnInfo(defaultValue = "486")
+    val width: Float,
+    @ColumnInfo(defaultValue = "486")
+    val height: Float,
     val scale: Float,
     val rotation: Float,
     val zIndex: Int,

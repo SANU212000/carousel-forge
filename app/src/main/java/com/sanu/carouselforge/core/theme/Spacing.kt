@@ -15,6 +15,14 @@ data class AppSpacing(
     val xl: androidx.compose.ui.unit.Dp = 32.dp,
     val xxl: androidx.compose.ui.unit.Dp = 48.dp,
     val huge: androidx.compose.ui.unit.Dp = 64.dp,
+    val toolbarHeight: androidx.compose.ui.unit.Dp = 56.dp,
+    val toolButtonSize: androidx.compose.ui.unit.Dp = 44.dp,
+    val toolDockHeight: androidx.compose.ui.unit.Dp = 72.dp,
+    val canvasMaxWidth: androidx.compose.ui.unit.Dp = 640.dp,
+    val compactBreakpoint: androidx.compose.ui.unit.Dp = 600.dp,
+    val shortHeightBreakpoint: androidx.compose.ui.unit.Dp = 520.dp,
+    val selectionStroke: androidx.compose.ui.unit.Dp = 2.dp,
+    val selectionHandle: androidx.compose.ui.unit.Dp = 10.dp,
 )
 
 internal val LocalAppSpacing = staticCompositionLocalOf { AppSpacing() }

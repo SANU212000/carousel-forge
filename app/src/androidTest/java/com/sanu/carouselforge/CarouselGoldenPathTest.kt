@@ -61,6 +61,11 @@ class CarouselGoldenPathTest {
                 EditorCanvas(
                     layers = layers,
                     selectedLayerId = layers.first().id,
+                    canvasWidth = 1080,
+                    canvasHeight = 1080,
+                    safeZoneVisible = false,
+                    splitGuidesVisible = false,
+                    splitCount = 2,
                     onSelectLayer = {},
                     onTransform = { id, delta: TransformDelta ->
                         layers = layers.map { layer ->
@@ -97,6 +102,8 @@ class CarouselGoldenPathTest {
                     text = null,
                     x = model.x,
                     y = model.y,
+                    width = model.width,
+                    height = model.height,
                     scale = model.scale,
                     rotation = model.rotation,
                     zIndex = model.zIndex,

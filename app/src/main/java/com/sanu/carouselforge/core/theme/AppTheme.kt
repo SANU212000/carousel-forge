@@ -15,6 +15,7 @@ private val AppColorScheme = darkColorScheme(
     background = ChromeBackground,
     onBackground = ContentPrimary,
     surface = SurfaceCanvas,
+    surfaceBright = CanvasBackground,
     onSurface = ContentPrimary,
     surfaceVariant = SurfaceRaised,
     onSurfaceVariant = ContentSecondary,
