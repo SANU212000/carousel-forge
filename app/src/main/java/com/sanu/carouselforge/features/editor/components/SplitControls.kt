@@ -1,10 +1,12 @@
 package com.sanu.carouselforge.features.editor.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
@@ -29,7 +31,16 @@ fun SplitControls(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.background)
+            .padding(horizontal = AppTheme.spacing.lg, vertical = AppTheme.spacing.xxs)
+            .background(
+                MaterialTheme.colorScheme.surfaceVariant,
+                RoundedCornerShape(AppTheme.spacing.sm),
+            )
+            .border(
+                AppTheme.spacing.selectionStroke,
+                MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
+                RoundedCornerShape(AppTheme.spacing.sm),
+            )
             .padding(horizontal = AppTheme.spacing.md, vertical = AppTheme.spacing.xxs),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,

@@ -2,16 +2,16 @@ package com.sanu.carouselforge.core.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
 
-private val AppColorScheme = darkColorScheme(
-    primary = AccentActive,
-    onPrimary = ChromeBackground,
+private val AppColorScheme = lightColorScheme(
+    primary = AccentEditor,
+    onPrimary = CanvasBackground,
     primaryContainer = SurfaceSelected,
-    onPrimaryContainer = ContentPrimary,
+    onPrimaryContainer = AccentEditor,
     background = ChromeBackground,
     onBackground = ContentPrimary,
     surface = SurfaceCanvas,
@@ -20,6 +20,8 @@ private val AppColorScheme = darkColorScheme(
     surfaceVariant = SurfaceRaised,
     onSurfaceVariant = ContentSecondary,
     outline = OutlineSubtle,
+    secondary = AccentActive,
+    onSecondary = CanvasBackground,
     error = ErrorContent,
     errorContainer = ErrorContainer,
 )

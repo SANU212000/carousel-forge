@@ -31,6 +31,7 @@ import com.sanu.carouselforge.core.theme.AppTheme
 import com.sanu.carouselforge.features.editor.components.CanvasViewport
 import com.sanu.carouselforge.features.editor.components.EditorTopBar
 import com.sanu.carouselforge.features.editor.components.LayerToolDock
+import com.sanu.carouselforge.features.editor.components.SlideThumbnailStrip
 import com.sanu.carouselforge.features.editor.components.SplitControls
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -184,6 +185,10 @@ private fun ResponsiveEditor(
         } else {
             Column(Modifier.fillMaxSize()) {
                 topBar(false)
+                SlideThumbnailStrip(
+                    splitCount = state.splitCount,
+                    imageUri = state.layers.firstOrNull()?.imageUri,
+                )
                 canvas(Modifier.weight(1f))
                 controls()
             }

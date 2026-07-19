@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material3.Button
@@ -17,6 +18,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import com.sanu.carouselforge.core.theme.AppTheme
 import com.sanu.carouselforge.features.editor.EditorState
 import com.sanu.carouselforge.features.editor.render.EditorCanvas
@@ -50,9 +53,17 @@ fun CanvasViewport(
         Box(
             modifier = Modifier
                 .size(canvasWidth, canvasHeight)
+                .shadow(
+                    elevation = AppTheme.spacing.md,
+                    shape = RoundedCornerShape(AppTheme.spacing.xs),
+                    spotColor = MaterialTheme.colorScheme.primary,
+                )
+                .clip(RoundedCornerShape(AppTheme.spacing.xs))
+                .background(MaterialTheme.colorScheme.surfaceBright)
                 .border(
                     width = AppTheme.spacing.selectionStroke,
-                    color = MaterialTheme.colorScheme.outline,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                    shape = RoundedCornerShape(AppTheme.spacing.xs),
                 ),
         ) {
             EditorCanvas(
@@ -84,6 +95,18 @@ fun CanvasViewport(
                     }
                 }
             }
+            Text(
+                text = "${state.canvasWidth}×${state.canvasHeight}",
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.82f))
+                    .padding(
+                        horizontal = AppTheme.spacing.xs,
+                        vertical = AppTheme.spacing.xxs,
+                    ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }

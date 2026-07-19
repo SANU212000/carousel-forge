@@ -1,13 +1,16 @@
 package com.sanu.carouselforge.features.editor.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.FitScreen
@@ -38,7 +41,16 @@ fun LayerToolDock(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = AppTheme.spacing.lg, vertical = AppTheme.spacing.xxs)
+            .background(
+                MaterialTheme.colorScheme.surfaceVariant,
+                RoundedCornerShape(AppTheme.spacing.sm),
+            )
+            .border(
+                AppTheme.spacing.selectionStroke,
+                MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
+                RoundedCornerShape(AppTheme.spacing.sm),
+            )
             .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
