@@ -211,6 +211,7 @@ class LocalProjectRepository(
             canvasHeight = value.canvasHeight,
             slideCount = value.slideCount,
             layerCount = value.layerCount,
+            coverImageUri = value.coverImageUri,
         )
 
     private companion object {

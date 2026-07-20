@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -50,6 +52,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,12 +60,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanu.carouselforge.core.error.userMessage
 import com.sanu.carouselforge.core.theme.AppTheme
 import com.sanu.carouselforge.data.repository.ProjectSummary
+import coil.compose.AsyncImage
+import kotlinx.coroutines.launch
 
 @Composable
 fun GalleryScreen(
@@ -73,12 +79,16 @@ fun GalleryScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var renameTarget by remember { mutableStateOf<ProjectSummary?>(null) }
+    var deleteTarget by remember { mutableStateOf<ProjectSummary?>(null) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 start = AppTheme.spacing.md,
@@ -128,7 +138,7 @@ fun GalleryScreen(
                             DraftCard(
                                 project = project,
                                 onOpen = { onOpenProject(project.id) },
-                                onDelete = { viewModel.deleteProject(project.id) },
+                                onDelete = { deleteTarget = project },
                                 onRename = { renameTarget = project },
                                 onDuplicate = { viewModel.duplicateProject(project.id) },
                             )
@@ -181,8 +191,12 @@ fun GalleryScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 BottomDestination(Icons.Default.Collections, "Edit", selected = true)
-                BottomDestination(Icons.Default.AutoAwesome, "Templates")
-                BottomDestination(Icons.Default.Tune, "Tools")
+                BottomDestination(
+                    Icons.Default.AutoAwesome,
+                    "Templates",
+                    onClick = { scope.launch { listState.animateScrollToItem(1) } },
+                )
+                BottomDestination(Icons.Default.Tune, "Tools", enabled = false)
                 BottomDestination(
                     Icons.Default.Settings,
                     "Settings",
@@ -202,6 +216,40 @@ fun GalleryScreen(
             onDismiss = { renameTarget = null },
         )
     }
+
+    deleteTarget?.let { target ->
+        DeleteProjectDialog(
+            projectName = target.name,
+            onConfirm = {
+                viewModel.deleteProject(target.id)
+                deleteTarget = null
+            },
+            onDismiss = { deleteTarget = null },
+        )
+    }
+}
+
+@Composable
+private fun DeleteProjectDialog(
+    projectName: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete project?") },
+        text = {
+            Text("\"$projectName\" will be permanently deleted. This cannot be undone.")
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("Delete", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 @Composable
@@ -254,7 +302,7 @@ private fun StudioTopBar(
                 fontWeight = FontWeight.Black,
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = {}) {
+                IconButton(onClick = {}, enabled = false) {
                     Icon(Icons.Default.Search, contentDescription = "Search")
                 }
                 IconButton(onClick = onSettings) {
@@ -433,26 +481,7 @@ private fun DraftCard(
             modifier = Modifier.padding(AppTheme.spacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(AppTheme.spacing.huge)
-                    .clip(RoundedCornerShape(AppTheme.spacing.xxs))
-                    .background(
-                        Brush.linearGradient(
-                            listOf(
-                                MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f),
-                                MaterialTheme.colorScheme.onSurfaceVariant,
-                            ),
-                        ),
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Default.Collections,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.surfaceBright,
-                )
-            }
+            DraftCoverThumbnail(coverImageUri = project.coverImageUri)
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -498,6 +527,40 @@ private fun DraftCard(
 }
 
 @Composable
+private fun DraftCoverThumbnail(coverImageUri: String?) {
+    val shape = RoundedCornerShape(AppTheme.spacing.xxs)
+    Box(
+        modifier = Modifier
+            .size(AppTheme.spacing.huge)
+            .clip(shape)
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f),
+                        MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
+                ),
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (coverImageUri != null) {
+            AsyncImage(
+                model = coverImageUri,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Icon(
+                Icons.Default.Collections,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.surfaceBright,
+            )
+        }
+    }
+}
+
+@Composable
 private fun EmptyDraftCard() {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -524,29 +587,28 @@ private fun BottomDestination(
     icon: ImageVector,
     label: String,
     selected: Boolean = false,
+    enabled: Boolean = true,
     onClick: () -> Unit = {},
 ) {
+    val inactiveTint = MaterialTheme.colorScheme.onSurfaceVariant
+    val tint = when {
+        !enabled -> MaterialTheme.colorScheme.outline
+        selected -> MaterialTheme.colorScheme.secondary
+        else -> inactiveTint
+    }
     Column(
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = Modifier.clickable(enabled = enabled, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Icon(
             icon,
             contentDescription = label,
-            tint = if (selected) {
-                MaterialTheme.colorScheme.secondary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
+            tint = tint,
         )
         Text(
             label,
             style = MaterialTheme.typography.bodySmall,
-            color = if (selected) {
-                MaterialTheme.colorScheme.secondary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
+            color = tint,
         )
     }
 }

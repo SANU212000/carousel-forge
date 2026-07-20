@@ -1,33 +1,33 @@
 package com.sanu.carouselforge.features.editor
 
-import android.content.Context
-import android.content.Intent
-import android.graphics.BitmapFactory
-import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanu.carouselforge.core.error.userMessage
 import com.sanu.carouselforge.core.model.CanvasPreset
@@ -48,9 +48,6 @@ import com.sanu.carouselforge.features.editor.components.TextEditSheet
 import com.sanu.carouselforge.features.editor.render.LayerModel
 import com.sanu.carouselforge.features.editor.render.LayerType
 import com.sanu.carouselforge.features.editor.render.TransformDelta
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Composable
 fun EditorScreen(
@@ -61,30 +58,21 @@ fun EditorScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val addImagePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
+        contract = PickVisualMedia(),
         onResult = { uri ->
-            uri?.let {
-                scope.launch {
-                    persistReadPermission(context, it)
-                    viewModel.addImage(it.toString(), readImageAspectRatio(context, it))
-                }
-            }
+            uri?.let { viewModel.importImage(context, it) }
         },
     )
     val replaceImagePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
+        contract = PickVisualMedia(),
         onResult = { uri ->
-            uri?.let {
-                scope.launch {
-                    persistReadPermission(context, it)
-                    viewModel.replaceSelectedImage(it.toString(), readImageAspectRatio(context, it))
-                }
-            }
+            uri?.let { viewModel.importReplacementImage(context, it) }
         },
     )
-    val openImagePicker = { addImagePicker.launch(arrayOf("image/*")) }
+    val openImagePicker = {
+        addImagePicker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly))
+    }
 
     when (val current = state) {
         EditorState.Loading -> LoadingContent(modifier)
@@ -100,7 +88,9 @@ fun EditorScreen(
             onBack = onBack,
             onExport = { viewModel.flushPendingSave(onExport) },
             onAddImage = openImagePicker,
-            onReplaceImage = { replaceImagePicker.launch(arrayOf("image/*")) },
+            onReplaceImage = {
+                replaceImagePicker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly))
+            },
             modifier = modifier,
         )
     }
@@ -157,6 +147,7 @@ private fun ResponsiveEditor(
             CanvasViewport(
                 state = state,
                 onSelectLayer = viewModel::selectLayer,
+                onDeselectLayer = viewModel::deselectLayer,
                 onTransform = viewModel::transformLayer,
                 onGestureEnd = viewModel::finishGesture,
                 onAddImage = onAddImage,
@@ -201,6 +192,12 @@ private fun ResponsiveEditor(
             Row(Modifier.fillMaxSize()) {
                 topBar(true)
                 Column(Modifier.weight(1f)) {
+                    state.notice?.let { notice ->
+                        EditorNoticeBanner(
+                            message = notice.userMessage(),
+                            onDismiss = viewModel::dismissNotice,
+                        )
+                    }
                     canvas(Modifier.weight(1f))
                     controls()
                 }
@@ -208,6 +205,12 @@ private fun ResponsiveEditor(
         } else {
             Column(Modifier.fillMaxSize()) {
                 topBar(false)
+                state.notice?.let { notice ->
+                    EditorNoticeBanner(
+                        message = notice.userMessage(),
+                        onDismiss = viewModel::dismissNotice,
+                    )
+                }
                 canvas(Modifier.weight(1f))
                 controls()
             }
@@ -270,6 +273,39 @@ private fun ResponsiveEditor(
 }
 
 @Composable
+private fun EditorNoticeBanner(
+    message: String,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = AppTheme.spacing.md, vertical = AppTheme.spacing.xs),
+        color = MaterialTheme.colorScheme.errorContainer,
+        shape = RoundedCornerShape(AppTheme.spacing.xs),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(AppTheme.spacing.sm),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = message,
+                modifier = Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            TextButton(onClick = onDismiss) {
+                Text("Dismiss", color = MaterialTheme.colorScheme.onErrorContainer)
+            }
+        }
+    }
+}
+
+@Composable
 private fun LoadingContent(
     modifier: Modifier,
     progress: Float? = null,
@@ -297,38 +333,3 @@ private fun ErrorContent(
         TextButton(onClick = onBack) { Text("Back to projects") }
     }
 }
-
-private suspend fun persistReadPermission(context: Context, uri: Uri) {
-    withContext(Dispatchers.IO) {
-        runCatching {
-            context.contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION,
-            )
-        }
-    }
-}
-
-private suspend fun readImageAspectRatio(context: Context, uri: Uri): Float =
-    withContext(Dispatchers.IO) {
-        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, options)
-        }
-        if (options.outWidth <= 0 || options.outHeight <= 0) return@withContext 1f
-        val orientation = context.contentResolver.openInputStream(uri)?.use {
-            runCatching {
-                ExifInterface(it).getAttributeInt(
-                    ExifInterface.TAG_ORIENTATION,
-                    ExifInterface.ORIENTATION_NORMAL,
-                )
-            }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
-        } ?: ExifInterface.ORIENTATION_NORMAL
-        val rotated = orientation == ExifInterface.ORIENTATION_ROTATE_90 ||
-            orientation == ExifInterface.ORIENTATION_ROTATE_270
-        if (rotated) {
-            options.outHeight.toFloat() / options.outWidth
-        } else {
-            options.outWidth.toFloat() / options.outHeight
-        }
-    }

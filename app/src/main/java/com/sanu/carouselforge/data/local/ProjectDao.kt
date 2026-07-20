@@ -28,6 +28,7 @@ data class ProjectSummaryRow(
     val canvasHeight: Int,
     val slideCount: Int,
     val layerCount: Int,
+    val coverImageUri: String?,
 )
 
 @Dao
@@ -46,7 +47,15 @@ abstract class ProjectDao {
             projects.canvasWidth,
             projects.canvasHeight,
             projects.slideCount,
-            COUNT(layers.id) AS layerCount
+            COUNT(layers.id) AS layerCount,
+            (
+                SELECT l.imageUri FROM layers l
+                WHERE l.projectId = projects.id
+                    AND l.type = 'IMAGE'
+                    AND l.imageUri IS NOT NULL
+                ORDER BY l.zIndex ASC
+                LIMIT 1
+            ) AS coverImageUri
         FROM projects
         LEFT JOIN layers ON layers.projectId = projects.id
         GROUP BY projects.id

@@ -123,6 +123,7 @@ data class ProjectSummary(
     val canvasHeight: Int,
     val slideCount: Int,
     val layerCount: Int,
+    val coverImageUri: String? = null,
 )
 
 interface ProjectRepository {

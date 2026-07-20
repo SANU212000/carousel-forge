@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -121,12 +122,7 @@ fun EditorTopBar(
                     IconButton(onClick = actions.onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
-                    Text(
-                        text = "CarouselForge",
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Black,
-                    )
+                    Spacer(Modifier.weight(1f))
                     IconButton(onClick = actions.onUndo, enabled = canUndo) {
                         Icon(Icons.AutoMirrored.Filled.Undo, "Undo")
                     }

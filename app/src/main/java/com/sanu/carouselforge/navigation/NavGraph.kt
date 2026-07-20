@@ -44,6 +44,7 @@ fun CarouselForgeNavGraph(
     val context = LocalContext.current
     val app = context.applicationContext as CarouselForgeApp
     val repository = app.appModule.projectRepository
+    val fileStore = app.appModule.projectFileStore
     val userPreferences = app.appModule.userPreferences
     val exportEngine = remember(context) { ExportEngine(context) }
 
@@ -61,16 +62,24 @@ fun CarouselForgeNavGraph(
             val viewModel: GalleryViewModel = viewModel(factory = factory)
             GalleryScreen(
                 viewModel = viewModel,
-                onOpenProject = { navController.navigate(EditorRoute(it)) },
-                onOpenSettings = { navController.navigate(SettingsRoute) },
+                onOpenProject = { projectId ->
+                    navController.navigate(EditorRoute(projectId)) {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenSettings = {
+                    navController.navigate(SettingsRoute) {
+                        launchSingleTop = true
+                    }
+                },
             )
         }
         composable<EditorRoute> { entry ->
             val route = entry.toRoute<EditorRoute>()
-            val factory = remember(route.projectId, repository, userPreferences) {
+            val factory = remember(route.projectId, repository, fileStore, userPreferences) {
                 viewModelFactory {
                     initializer {
-                        EditorViewModel(route.projectId, repository, userPreferences)
+                        EditorViewModel(route.projectId, repository, fileStore, userPreferences)
                     }
                 }
             }
@@ -81,7 +90,11 @@ fun CarouselForgeNavGraph(
             EditorScreen(
                 viewModel = viewModel,
                 onBack = navController::popBackStack,
-                onExport = { navController.navigate(ExportRoute(route.projectId)) },
+                onExport = {
+                    navController.navigate(ExportRoute(route.projectId)) {
+                        launchSingleTop = true
+                    }
+                },
             )
         }
         dialog<SafeZonePreviewRoute> {

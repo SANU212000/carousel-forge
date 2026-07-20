@@ -1,5 +1,7 @@
 package com.sanu.carouselforge.features.editor
 
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sanu.carouselforge.core.error.AppError
@@ -10,6 +12,7 @@ import com.sanu.carouselforge.core.prefs.UserPreferencesRepository
 import com.sanu.carouselforge.data.repository.Layer
 import com.sanu.carouselforge.data.repository.LocalProjectRepository
 import com.sanu.carouselforge.data.repository.Project
+import com.sanu.carouselforge.data.repository.ProjectFileStore
 import com.sanu.carouselforge.data.repository.ProjectRepository
 import com.sanu.carouselforge.features.editor.render.LayerModel
 import com.sanu.carouselforge.features.editor.render.LayerType
@@ -53,6 +56,7 @@ sealed interface EditorState {
 class EditorViewModel(
     private val projectId: String,
     private val repository: ProjectRepository,
+    private val fileStore: ProjectFileStore,
     private val userPreferences: UserPreferencesRepository? = null,
     private val errorObserver: ErrorObserver = LogcatErrorObserver,
 ) : ViewModel() {
@@ -154,6 +158,16 @@ class EditorViewModel(
         }
     }
 
+    fun deselectLayer() {
+        mutableState.update { current ->
+            if (current is EditorState.Editing && current.selectedLayerId != null) {
+                current.copy(selectedLayerId = null)
+            } else {
+                current
+            }
+        }
+    }
+
     fun transformLayer(id: String, delta: TransformDelta, thresholdPx: Float = 0f) {
         mutableState.update { current ->
             if (current !is EditorState.Editing) return@update current
@@ -236,6 +250,51 @@ class EditorViewModel(
         }
     }
 
+    fun reportNotice(error: AppError) {
+        errorObserver.record(error)
+        mutableState.update { current ->
+            if (current is EditorState.Editing) current.copy(notice = error) else current
+        }
+    }
+
+    fun dismissNotice() {
+        mutableState.update { current ->
+            if (current is EditorState.Editing) current.copy(notice = null) else current
+        }
+    }
+
+    fun importImage(context: Context, uri: Uri) {
+        viewModelScope.launch {
+            try {
+                val imported = fileStore.importImage(projectId, context, uri)
+                addImage(imported.localPath, imported.aspectRatio)
+            } catch (error: Exception) {
+                reportNotice(
+                    AppError.ImageDecodeError(
+                        uri = uri.toString(),
+                        reason = error.message ?: "Could not read image",
+                    ),
+                )
+            }
+        }
+    }
+
+    fun importReplacementImage(context: Context, uri: Uri) {
+        viewModelScope.launch {
+            try {
+                val imported = fileStore.importImage(projectId, context, uri)
+                replaceSelectedImage(imported.localPath, imported.aspectRatio)
+            } catch (error: Exception) {
+                reportNotice(
+                    AppError.ImageDecodeError(
+                        uri = uri.toString(),
+                        reason = error.message ?: "Could not read image",
+                    ),
+                )
+            }
+        }
+    }
+
     /**
      * Applies a new per-slide ratio to every slide at once. Each layer keeps its
      * fractional center within the total canvas and its own size/scale, then is
@@ -292,12 +351,13 @@ class EditorViewModel(
                 canvasHeight = current.canvasHeight.toFloat(),
                 coverage = DEFAULT_LAYER_COVERAGE,
             )
+            val (posX, posY) = cascadedTopLeft(current, width, height)
             val layer = LayerModel(
                 id = UUID.randomUUID().toString(),
                 type = LayerType.IMAGE,
                 imageUri = uri,
-                x = (current.canvasWidth - width) / 2f,
-                y = (current.canvasHeight - height) / 2f,
+                x = posX,
+                y = posY,
                 width = width,
                 height = height,
                 zIndex = current.layers.size,
@@ -397,15 +457,16 @@ class EditorViewModel(
         editWithHistory { current ->
             val width = current.canvasWidth * TEXT_LAYER_WIDTH_FRACTION
             val height = current.canvasHeight * TEXT_LAYER_HEIGHT_FRACTION
+            val (posX, posY) = cascadedTopLeft(current, width, height)
             val layer = LayerModel(
                 id = UUID.randomUUID().toString(),
                 type = LayerType.TEXT,
                 text = text,
-                x = (current.canvasWidth - width) / 2f,
-                y = (current.canvasHeight - height) / 2f,
+                x = posX,
+                y = posY,
                 width = width,
                 height = height,
-                textSizeSp = current.canvasWidth * DEFAULT_TEXT_SIZE_FRACTION,
+                textSizeSp = defaultTextSizeForLayer(height, current.canvasWidth.toFloat()),
                 zIndex = current.layers.size,
             )
             current.copy(layers = current.layers + layer, selectedLayerId = layer.id)
@@ -415,13 +476,14 @@ class EditorViewModel(
     fun addShape(kind: com.sanu.carouselforge.data.repository.ShapeKind, fillColor: Long) {
         editWithHistory { current ->
             val size = current.canvasWidth * SHAPE_LAYER_FRACTION
+            val (posX, posY) = cascadedTopLeft(current, size, size)
             val layer = LayerModel(
                 id = UUID.randomUUID().toString(),
                 type = LayerType.SHAPE,
                 shapeKind = kind,
                 fillColor = fillColor,
-                x = (current.canvasWidth - size) / 2f,
-                y = (current.canvasHeight - size) / 2f,
+                x = posX,
+                y = posY,
                 width = size,
                 height = size,
                 zIndex = current.layers.size,
@@ -438,12 +500,13 @@ class EditorViewModel(
                 canvasHeight = current.canvasHeight.toFloat(),
                 coverage = STICKER_LAYER_COVERAGE,
             )
+            val (posX, posY) = cascadedTopLeft(current, width, height)
             val layer = LayerModel(
                 id = UUID.randomUUID().toString(),
                 type = LayerType.STICKER,
                 imageUri = uri,
-                x = (current.canvasWidth - width) / 2f,
-                y = (current.canvasHeight - height) / 2f,
+                x = posX,
+                y = posY,
                 width = width,
                 height = height,
                 zIndex = current.layers.size,
@@ -664,6 +727,23 @@ class EditorViewModel(
     private fun slideBoundaryXs(editing: EditorState.Editing): List<Float> =
         (1 until editing.slideCount).map { (it * editing.canvasWidth).toFloat() }
 
+    private fun cascadedTopLeft(
+        current: EditorState.Editing,
+        layerWidth: Float,
+        layerHeight: Float,
+    ): Pair<Float, Float> {
+        val baseX = (current.canvasWidth - layerWidth) / 2f
+        val baseY = (current.canvasHeight - layerHeight) / 2f
+        val step = (current.layers.size % CASCADE_WRAP) * CASCADE_OFFSET
+        val x = (baseX + step).coerceIn(0f, (current.canvasWidth - layerWidth).coerceAtLeast(0f))
+        val y = (baseY + step).coerceIn(0f, (current.canvasHeight - layerHeight).coerceAtLeast(0f))
+        return x to y
+    }
+
+    private fun defaultTextSizeForLayer(layerHeight: Float, canvasWidth: Float): Float =
+        (layerHeight * TEXT_SIZE_TO_LAYER_HEIGHT)
+            .coerceIn(canvasWidth * MIN_TEXT_SIZE_FRACTION, canvasWidth * MAX_TEXT_SIZE_FRACTION)
+
     private fun containedLayerSize(
         aspectRatio: Float,
         canvasWidth: Float,
@@ -687,10 +767,14 @@ class EditorViewModel(
         const val FIT_LAYER_COVERAGE = 0.9f
         const val STICKER_LAYER_COVERAGE = 0.4f
         const val TEXT_LAYER_WIDTH_FRACTION = 0.8f
-        const val TEXT_LAYER_HEIGHT_FRACTION = 0.16f
-        const val DEFAULT_TEXT_SIZE_FRACTION = 0.08f
+        const val TEXT_LAYER_HEIGHT_FRACTION = 0.22f
+        const val TEXT_SIZE_TO_LAYER_HEIGHT = 0.38f
+        const val MIN_TEXT_SIZE_FRACTION = 0.04f
+        const val MAX_TEXT_SIZE_FRACTION = 0.2f
         const val SHAPE_LAYER_FRACTION = 0.4f
         const val DUPLICATE_OFFSET = 24f
+        const val CASCADE_OFFSET = 24f
+        const val CASCADE_WRAP = 6
         const val MIN_SLIDE_COUNT = 1
         const val MAX_SLIDE_COUNT = 10
         const val MAX_HISTORY = 30

@@ -9,6 +9,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +36,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -65,6 +67,7 @@ fun EditorCanvas(
     bgColorEnd: Long?,
     safeZoneVisible: Boolean,
     onSelectLayer: (String) -> Unit,
+    onDeselectLayer: () -> Unit = {},
     onTransform: (String, TransformDelta, Float) -> Unit,
     onGestureEnd: (String, Float, Float) -> Unit,
     modifier: Modifier = Modifier,
@@ -109,6 +112,16 @@ fun EditorCanvas(
             .clipToBounds()
             .background(background),
     ) {
+        if (selectedLayerId != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(-1f)
+                    .pointerInput(selectedLayerId) {
+                        detectTapGestures(onTap = { onDeselectLayer() })
+                    },
+            )
+        }
         layers.sortedBy(LayerModel::zIndex).forEach { layer ->
             key(layer.id) {
                 val width = with(density) { (layer.width * displayScale).toDp() }
@@ -155,10 +168,16 @@ fun EditorCanvas(
                                 ambientShadowColor = selectionColor
                                 spotShadowColor = selectionColor
                             }
-                            clip = true
+                            clip = layer.type != LayerType.TEXT
                             shape = layerShape
                         }
-                        .clip(layerShape)
+                        .then(
+                            if (layer.type != LayerType.TEXT) {
+                                Modifier.clip(layerShape)
+                            } else {
+                                Modifier
+                            },
+                        )
                         .then(
                             if (layer.type == LayerType.IMAGE || layer.type == LayerType.STICKER) {
                                 Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
@@ -229,14 +248,20 @@ fun EditorCanvas(
                 slideCount = slideCount,
                 color = cutLineColor,
                 strokeWidth = cutLineStrokePx,
+                modifier = Modifier.passThroughPointerEvents(),
             )
         }
         SafeZoneOverlay(
             visible = safeZoneVisible,
             slideIndex = 0,
             slideCount = slideCount,
+            modifier = Modifier.passThroughPointerEvents(),
         )
-        SmartGuidesOverlay(guides = guides, displayScale = displayScale)
+        SmartGuidesOverlay(
+            guides = guides,
+            displayScale = displayScale,
+            modifier = Modifier.passThroughPointerEvents(),
+        )
     }
 }
 
@@ -309,7 +334,11 @@ private fun LayerContent(layer: LayerModel, displayScale: Float) {
                 TextAlignment.CENTER -> TextAlign.Center
                 TextAlignment.RIGHT -> TextAlign.End
             },
-            modifier = Modifier.fillMaxWidth(),
+            softWrap = true,
+            maxLines = 4,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = AppTheme.spacing.xxs),
         )
 
         LayerType.SHAPE -> ShapeContent(layer)
@@ -353,8 +382,9 @@ private fun CutLineOverlay(
     slideCount: Int,
     color: Color,
     strokeWidth: Float,
+    modifier: Modifier = Modifier,
 ) {
-    Canvas(Modifier.fillMaxSize()) {
+    Canvas(modifier = modifier.fillMaxSize()) {
         val slideWidth = size.width / slideCount
         for (index in 1 until slideCount) {
             val x = slideWidth * index
@@ -370,3 +400,6 @@ private fun CutLineOverlay(
 
 private const val LINE_THICKNESS_FRACTION = 0.12f
 const val EDITOR_CANVAS_TEST_TAG = "editor_canvas"
+
+private fun Modifier.passThroughPointerEvents(): Modifier =
+    pointerInteropFilter { false }
