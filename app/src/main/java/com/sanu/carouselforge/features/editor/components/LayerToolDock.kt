@@ -12,11 +12,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.DynamicFeed
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FitScreen
 import androidx.compose.material.icons.filled.FlipToBack
 import androidx.compose.material.icons.filled.FlipToFront
 import androidx.compose.material.icons.filled.FindReplace
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -26,18 +31,30 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.sanu.carouselforge.core.theme.AppTheme
+import com.sanu.carouselforge.features.editor.render.LayerType
+
+class LayerToolActions(
+    val onEditText: () -> Unit,
+    val onStyle: () -> Unit,
+    val onReplace: () -> Unit,
+    val onCrop: () -> Unit,
+    val onDuplicate: () -> Unit,
+    val onCopyToAllSlides: () -> Unit,
+    val onDelete: () -> Unit,
+    val onFit: () -> Unit,
+    val onBackward: () -> Unit,
+    val onForward: () -> Unit,
+)
 
 @Composable
 fun LayerToolDock(
-    hasSelection: Boolean,
-    onReplace: () -> Unit,
-    onDelete: () -> Unit,
-    onFit: () -> Unit,
-    onBackward: () -> Unit,
-    onForward: () -> Unit,
+    selectedType: LayerType?,
+    slideCount: Int,
+    actions: LayerToolActions,
     modifier: Modifier = Modifier,
 ) {
-    if (!hasSelection) return
+    if (selectedType == null) return
+    val isImage = selectedType == LayerType.IMAGE || selectedType == LayerType.STICKER
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -55,11 +72,22 @@ fun LayerToolDock(
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ToolAction("Replace", Icons.Default.FindReplace, onReplace)
-        ToolAction("Delete", Icons.Default.DeleteOutline, onDelete)
-        ToolAction("Fit", Icons.Default.FitScreen, onFit)
-        ToolAction("Backward", Icons.Default.FlipToBack, onBackward)
-        ToolAction("Forward", Icons.Default.FlipToFront, onForward)
+        if (selectedType == LayerType.TEXT) {
+            ToolAction("Edit", Icons.Default.Edit, actions.onEditText)
+        }
+        ToolAction("Style", Icons.Default.Tune, actions.onStyle)
+        if (isImage) {
+            ToolAction("Replace", Icons.Default.FindReplace, actions.onReplace)
+            ToolAction("Crop", Icons.Default.Crop, actions.onCrop)
+        }
+        ToolAction("Duplicate", Icons.Default.ContentCopy, actions.onDuplicate)
+        if (slideCount > 1) {
+            ToolAction("To all", Icons.Default.DynamicFeed, actions.onCopyToAllSlides)
+        }
+        ToolAction("Fit", Icons.Default.FitScreen, actions.onFit)
+        ToolAction("Backward", Icons.Default.FlipToBack, actions.onBackward)
+        ToolAction("Forward", Icons.Default.FlipToFront, actions.onForward)
+        ToolAction("Delete", Icons.Default.DeleteOutline, actions.onDelete)
     }
 }
 

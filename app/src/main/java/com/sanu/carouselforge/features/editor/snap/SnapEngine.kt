@@ -52,6 +52,11 @@ sealed interface SnapTarget {
         val siblingAnchor: SnapAnchor,
         override val positionPx: Float,
     ) : SnapTarget
+
+    /** A slide boundary (cut line) in the connected carousel canvas. */
+    data class SlideBoundary(
+        override val positionPx: Float,
+    ) : SnapTarget
 }
 
 data class AxisSnap(
@@ -80,6 +85,7 @@ object SnapEngine {
         gridSpacingPx: Float? = null,
         gridOriginXPx: Float = 0f,
         gridOriginYPx: Float = 0f,
+        snapLinesX: List<Float> = emptyList(),
     ): SnapResult {
         require(thresholdPx.isFinite() && thresholdPx >= 0f) {
             "Snap threshold must be a finite, non-negative pixel value."
@@ -90,6 +96,7 @@ object SnapEngine {
         require(gridOriginXPx.isFinite() && gridOriginYPx.isFinite()) {
             "Grid origins must be finite."
         }
+        require(snapLinesX.all(Float::isFinite)) { "Snap lines must be finite." }
 
         val eligibleSiblings = siblings.filter { it.id != moving.id }
         val horizontal = nearestSnap(
@@ -99,6 +106,7 @@ object SnapEngine {
             thresholdPx = thresholdPx,
             gridSpacingPx = gridSpacingPx,
             gridOriginPx = gridOriginXPx,
+            boundaryLinesPx = snapLinesX,
         )
         val vertical = nearestSnap(
             axis = SnapAxis.VERTICAL,
@@ -107,6 +115,7 @@ object SnapEngine {
             thresholdPx = thresholdPx,
             gridSpacingPx = gridSpacingPx,
             gridOriginPx = gridOriginYPx,
+            boundaryLinesPx = emptyList(),
         )
 
         return SnapResult(
@@ -127,6 +136,7 @@ object SnapEngine {
         thresholdPx: Float,
         gridSpacingPx: Float?,
         gridOriginPx: Float,
+        boundaryLinesPx: List<Float>,
     ): AxisSnap? {
         val candidates = buildList {
             movingPositions.forEach { (movingAnchor, movingPosition) ->
@@ -148,6 +158,20 @@ object SnapEngine {
                             ),
                         )
                     }
+                }
+
+                boundaryLinesPx.forEach { linePosition ->
+                    add(
+                        Candidate(
+                            snap = AxisSnap(
+                                axis = axis,
+                                movingAnchor = movingAnchor,
+                                target = SnapTarget.SlideBoundary(linePosition),
+                                translationPx = linePosition - movingPosition,
+                            ),
+                            targetPriority = BOUNDARY_PRIORITY,
+                        ),
+                    )
                 }
 
                 if (gridSpacingPx != null) {
@@ -199,5 +223,6 @@ object SnapEngine {
     )
 
     private const val SIBLING_PRIORITY = 0
-    private const val GRID_PRIORITY = 1
+    private const val BOUNDARY_PRIORITY = 1
+    private const val GRID_PRIORITY = 2
 }

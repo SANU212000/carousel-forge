@@ -23,6 +23,8 @@ data class AppSpacing(
     val shortHeightBreakpoint: androidx.compose.ui.unit.Dp = 520.dp,
     val selectionStroke: androidx.compose.ui.unit.Dp = 2.dp,
     val selectionHandle: androidx.compose.ui.unit.Dp = 10.dp,
+    val swatch: androidx.compose.ui.unit.Dp = 36.dp,
+    val rulerThickness: androidx.compose.ui.unit.Dp = 18.dp,
 )
 
 internal val LocalAppSpacing = staticCompositionLocalOf { AppSpacing() }

@@ -26,6 +26,7 @@ data class ProjectSummaryRow(
     val updatedAt: Long,
     val canvasWidth: Int,
     val canvasHeight: Int,
+    val slideCount: Int,
     val layerCount: Int,
 )
 
@@ -44,6 +45,7 @@ abstract class ProjectDao {
             projects.updatedAt,
             projects.canvasWidth,
             projects.canvasHeight,
+            projects.slideCount,
             COUNT(layers.id) AS layerCount
         FROM projects
         LEFT JOIN layers ON layers.projectId = projects.id

@@ -63,11 +63,12 @@ class CarouselGoldenPathTest {
                     selectedLayerId = layers.first().id,
                     canvasWidth = 1080,
                     canvasHeight = 1080,
+                    slideCount = 1,
+                    bgColorStart = 0xFFFFFFFFL,
+                    bgColorEnd = null,
                     safeZoneVisible = false,
-                    splitGuidesVisible = false,
-                    splitCount = 2,
                     onSelectLayer = {},
-                    onTransform = { id, delta: TransformDelta ->
+                    onTransform = { id, delta: TransformDelta, _ ->
                         layers = layers.map { layer ->
                             if (layer.id == id) {
                                 layer.copy(x = layer.x + delta.panX, y = layer.y + delta.panY)
@@ -111,15 +112,16 @@ class CarouselGoldenPathTest {
             },
         )
         val result = runBlocking { ExportEngine(context).export(project) }
+        val page = result.pages.first()
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(result.uri).use {
+        context.contentResolver.openInputStream(page.uri).use {
             BitmapFactory.decodeStream(it, null, bounds)
         }
 
-        assertEquals(result.width, bounds.outWidth)
-        assertEquals(result.height, bounds.outHeight)
-        assertTrue(result.width == 2160 || result.width == 3240)
-        context.contentResolver.delete(result.uri, null, null)
+        assertEquals(page.width, bounds.outWidth)
+        assertEquals(page.height, bounds.outHeight)
+        assertTrue(page.width == 2160 || page.width == 3240)
+        result.pages.forEach { context.contentResolver.delete(it.uri, null, null) }
         imageFiles.forEach(File::delete)
     }
 }

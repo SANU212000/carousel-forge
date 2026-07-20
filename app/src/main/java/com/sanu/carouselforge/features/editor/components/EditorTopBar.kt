@@ -2,31 +2,34 @@ package com.sanu.carouselforge.features.editor.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.GridOff
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Title
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledIconButton
@@ -43,15 +46,28 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import com.sanu.carouselforge.core.theme.AppTheme
 
+class EditorTopBarActions(
+    val onBack: () -> Unit,
+    val onAddImage: () -> Unit,
+    val onAddText: () -> Unit,
+    val onOpenElements: () -> Unit,
+    val onOpenBackground: () -> Unit,
+    val onOpenRatio: () -> Unit,
+    val onToggleGrid: () -> Unit,
+    val onToggleSafeZone: () -> Unit,
+    val onOpenLayers: () -> Unit,
+    val onUndo: () -> Unit,
+    val onRedo: () -> Unit,
+    val onExport: () -> Unit,
+)
+
 @Composable
 fun EditorTopBar(
     gridEnabled: Boolean,
     safeZoneVisible: Boolean,
-    onBack: () -> Unit,
-    onAddImage: () -> Unit,
-    onToggleSafeZone: () -> Unit,
-    onToggleGrid: () -> Unit,
-    onExport: () -> Unit,
+    canUndo: Boolean,
+    canRedo: Boolean,
+    actions: EditorTopBarActions,
     vertical: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -61,30 +77,36 @@ fun EditorTopBar(
                 .fillMaxHeight()
                 .width(AppTheme.spacing.huge)
                 .background(MaterialTheme.colorScheme.background)
-                .padding(vertical = AppTheme.spacing.xs),
+                .padding(vertical = AppTheme.spacing.xs)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(AppTheme.spacing.xs),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            EditorAction(onBack, Icons.AutoMirrored.Filled.ArrowBack, "Back")
-            EditorAction(onAddImage, Icons.Default.AddPhotoAlternate, "Add image")
-            EditorAction(
-                onToggleSafeZone,
-                if (safeZoneVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                "Toggle safe zone",
-            )
-            EditorAction(
-                onToggleGrid,
+            IconAction(actions.onBack, Icons.AutoMirrored.Filled.ArrowBack, "Back")
+            IconAction(actions.onAddImage, Icons.Default.AddPhotoAlternate, "Add image")
+            IconAction(actions.onAddText, Icons.Default.Title, "Add text")
+            IconAction(actions.onOpenElements, Icons.Default.Category, "Elements")
+            IconAction(actions.onOpenBackground, Icons.Default.FormatColorFill, "Background")
+            IconAction(actions.onOpenRatio, Icons.Default.AspectRatio, "Canvas ratio")
+            IconAction(actions.onOpenLayers, Icons.Default.Layers, "Layers")
+            IconAction(
+                actions.onToggleGrid,
                 if (gridEnabled) Icons.Default.GridOn else Icons.Default.GridOff,
                 "Toggle grid snapping",
             )
-            FilledIconButton(onClick = onExport) {
+            IconAction(
+                actions.onToggleSafeZone,
+                if (safeZoneVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                "Toggle safe zone",
+            )
+            IconAction(actions.onUndo, Icons.AutoMirrored.Filled.Undo, "Undo", enabled = canUndo)
+            IconAction(actions.onRedo, Icons.AutoMirrored.Filled.Redo, "Redo", enabled = canRedo)
+            FilledIconButton(onClick = actions.onExport) {
                 Icon(Icons.Default.AutoAwesome, "Export")
             }
         }
     } else {
-        Column(
-            modifier = modifier.fillMaxWidth(),
-        ) {
+        Column(modifier = modifier.fillMaxWidth()) {
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 shadowElevation = AppTheme.spacing.xxs,
@@ -96,7 +118,7 @@ fun EditorTopBar(
                         .padding(horizontal = AppTheme.spacing.xs),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = actions.onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                     Text(
@@ -105,8 +127,14 @@ fun EditorTopBar(
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Black,
                     )
+                    IconButton(onClick = actions.onUndo, enabled = canUndo) {
+                        Icon(Icons.AutoMirrored.Filled.Undo, "Undo")
+                    }
+                    IconButton(onClick = actions.onRedo, enabled = canRedo) {
+                        Icon(Icons.AutoMirrored.Filled.Redo, "Redo")
+                    }
                     Button(
-                        onClick = onExport,
+                        onClick = actions.onExport,
                         shape = RoundedCornerShape(AppTheme.spacing.xxs),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
@@ -116,20 +144,6 @@ fun EditorTopBar(
                         ),
                     ) {
                         Text("EXPORT", fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(Modifier.width(AppTheme.spacing.xs))
-                    Box(
-                        modifier = Modifier
-                            .size(AppTheme.spacing.xl)
-                            .background(MaterialTheme.colorScheme.surface, CircleShape)
-                            .border(
-                                AppTheme.spacing.selectionStroke,
-                                MaterialTheme.colorScheme.outline,
-                                CircleShape,
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("●", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -141,10 +155,7 @@ fun EditorTopBar(
             ) {
                 Row(
                     modifier = Modifier
-                        .shadow(
-                            AppTheme.spacing.xs,
-                            RoundedCornerShape(AppTheme.spacing.sm),
-                        )
+                        .shadow(AppTheme.spacing.xs, RoundedCornerShape(AppTheme.spacing.sm))
                         .background(
                             MaterialTheme.colorScheme.surfaceVariant,
                             RoundedCornerShape(AppTheme.spacing.sm),
@@ -154,31 +165,30 @@ fun EditorTopBar(
                             MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
                             RoundedCornerShape(AppTheme.spacing.sm),
                         )
+                        .horizontalScroll(rememberScrollState())
                         .padding(
                             horizontal = AppTheme.spacing.xs,
                             vertical = AppTheme.spacing.xxs,
                         ),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TrayAction(Icons.Default.Crop, "Crop", onAddImage)
-                    TrayAction(
-                        Icons.Default.AddPhotoAlternate,
-                        "Add image",
-                        onAddImage,
-                        selected = true,
-                    )
+                    TrayAction(Icons.Default.AddPhotoAlternate, "Add image", actions.onAddImage)
+                    TrayAction(Icons.Default.Title, "Text", actions.onAddText)
+                    TrayAction(Icons.Default.Category, "Elements", actions.onOpenElements)
+                    TrayAction(Icons.Default.FormatColorFill, "Background", actions.onOpenBackground)
+                    TrayAction(Icons.Default.AspectRatio, "Ratio", actions.onOpenRatio)
+                    TrayAction(Icons.Default.Layers, "Layers", actions.onOpenLayers)
                     TrayAction(
                         if (gridEnabled) Icons.Default.GridOn else Icons.Default.GridOff,
                         "Grid snapping",
-                        onToggleGrid,
+                        actions.onToggleGrid,
+                        selected = gridEnabled,
                     )
-                    TrayAction(Icons.Default.Tune, "Adjust", onToggleGrid)
-                    TrayAction(Icons.Default.Title, "Text", onAddImage)
-                    TrayAction(Icons.Default.Layers, "Layers", onToggleSafeZone)
                     TrayAction(
-                        if (safeZoneVisible) Icons.Default.Visibility else Icons.Default.AutoAwesome,
+                        if (safeZoneVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
                         "Safe zone",
-                        onToggleSafeZone,
+                        actions.onToggleSafeZone,
+                        selected = safeZoneVisible,
                     )
                 }
             }
@@ -187,12 +197,13 @@ fun EditorTopBar(
 }
 
 @Composable
-private fun EditorAction(
+private fun IconAction(
     onClick: () -> Unit,
     icon: ImageVector,
     description: String,
+    enabled: Boolean = true,
 ) {
-    IconButton(onClick = onClick) {
+    IconButton(onClick = onClick, enabled = enabled) {
         Icon(icon, contentDescription = description)
     }
 }

@@ -79,6 +79,24 @@ class SnapEngineTest {
     }
 
     @Test
+    fun resolve_snapsLeftEdgeToSlideBoundary() {
+        // Moving layer's left edge is 4px shy of a cut line at x = 1000.
+        val moving = LayerBounds("moving", left = 996f, top = 20f, right = 1096f, bottom = 120f)
+
+        val result = SnapEngine.resolve(
+            moving = moving,
+            siblings = emptyList(),
+            thresholdPx = 6f,
+            snapLinesX = listOf(500f, 1000f),
+        )
+
+        assertTrue(result.horizontal?.target is SnapTarget.SlideBoundary)
+        assertEquals(4f, result.translationXPx, 0f)
+        assertEquals(1000f, result.targetBounds.left, 0f)
+        assertNull(result.vertical)
+    }
+
+    @Test
     fun resolve_ignoresSiblingWithSameId() {
         val moving = LayerBounds("same", left = 10f, top = 10f, right = 20f, bottom = 20f)
         val staleCopy = LayerBounds("same", left = 11f, top = 11f, right = 21f, bottom = 21f)

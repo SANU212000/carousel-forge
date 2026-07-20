@@ -7,6 +7,19 @@ enum class LayerType {
     SHAPE,
 }
 
+enum class TextAlignment {
+    LEFT,
+    CENTER,
+    RIGHT,
+}
+
+enum class ShapeKind {
+    RECT,
+    CIRCLE,
+    LINE,
+    ARROW,
+}
+
 data class Layer(
     val id: String,
     val type: LayerType,
@@ -19,6 +32,24 @@ data class Layer(
     val scale: Float,
     val rotation: Float,
     val zIndex: Int,
+    val textColor: Long = 0xFF000000L,
+    val textSizeSp: Float = 32f,
+    val fontWeight: Int = 400,
+    val textAlign: TextAlignment = TextAlignment.CENTER,
+    val fontFamily: String? = null,
+    val alpha: Float = 1f,
+    val cornerRadius: Float = 0f,
+    val hasShadow: Boolean = false,
+    val cropLeft: Float = 0f,
+    val cropTop: Float = 0f,
+    val cropRight: Float = 1f,
+    val cropBottom: Float = 1f,
+    val brightness: Float = 0f,
+    val contrast: Float = 1f,
+    val saturation: Float = 1f,
+    val filterPreset: String? = null,
+    val shapeKind: ShapeKind? = null,
+    val fillColor: Long? = null,
 ) {
     init {
         require(id.isNotBlank()) { "Layer id must not be blank" }
@@ -35,6 +66,16 @@ data class Layer(
             "$type layers require an image URI"
         }
         require(type != LayerType.TEXT || text != null) { "TEXT layers require text content" }
+        require(alpha in 0f..1f) { "Layer alpha must be within 0..1" }
+        require(cornerRadius.isFinite() && cornerRadius >= 0f) {
+            "Layer corner radius must be finite and non-negative"
+        }
+        require(cropLeft in 0f..1f && cropTop in 0f..1f && cropRight in 0f..1f && cropBottom in 0f..1f) {
+            "Crop fractions must be within 0..1"
+        }
+        require(cropRight > cropLeft && cropBottom > cropTop) {
+            "Crop rectangle must have positive area"
+        }
     }
 }
 
@@ -45,6 +86,9 @@ data class Project(
     val updatedAt: Long,
     val canvasWidth: Int,
     val canvasHeight: Int,
+    val slideCount: Int = 1,
+    val bgColorStart: Long = 0xFFFFFFFFL,
+    val bgColorEnd: Long? = null,
     val layers: List<Layer>,
 ) {
     init {
@@ -57,6 +101,7 @@ data class Project(
         require(canvasWidth > 0 && canvasHeight > 0) {
             "Project canvas dimensions must be positive"
         }
+        require(slideCount >= 1) { "Project must have at least one slide" }
         require(layers.map(Layer::id).distinct().size == layers.size) {
             "Layer ids must be unique within a project"
         }
@@ -64,6 +109,9 @@ data class Project(
             "Layer z-indices must be unique within a project"
         }
     }
+
+    /** Total logical canvas width across all connected slides. */
+    val totalWidth: Int get() = canvasWidth * slideCount
 }
 
 data class ProjectSummary(
@@ -73,6 +121,7 @@ data class ProjectSummary(
     val updatedAt: Long,
     val canvasWidth: Int,
     val canvasHeight: Int,
+    val slideCount: Int,
     val layerCount: Int,
 )
 

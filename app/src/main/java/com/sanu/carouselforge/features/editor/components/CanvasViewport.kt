@@ -29,10 +29,11 @@ import com.sanu.carouselforge.features.editor.render.TransformDelta
 fun CanvasViewport(
     state: EditorState.Editing,
     onSelectLayer: (String) -> Unit,
-    onTransform: (String, TransformDelta) -> Unit,
+    onTransform: (String, TransformDelta, Float) -> Unit,
     onGestureEnd: (String, Float, Float) -> Unit,
     onAddImage: () -> Unit,
     modifier: Modifier = Modifier,
+    onEditText: (String) -> Unit = {},
 ) {
     BoxWithConstraints(
         modifier = modifier
@@ -40,7 +41,7 @@ fun CanvasViewport(
             .padding(AppTheme.spacing.md),
         contentAlignment = Alignment.Center,
     ) {
-        val canvasRatio = state.canvasWidth.toFloat() / state.canvasHeight
+        val canvasRatio = state.totalWidth.toFloat() / state.canvasHeight
         val availableWidth = minOf(maxWidth, AppTheme.spacing.canvasMaxWidth)
         val availableHeight = maxHeight
         val canvasWidth = if (availableWidth / availableHeight > canvasRatio) {
@@ -49,6 +50,19 @@ fun CanvasViewport(
             availableWidth
         }
         val canvasHeight = canvasWidth / canvasRatio
+
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val canvasWidthPx = with(density) { canvasWidth.toPx() }
+        val canvasHeightPx = with(density) { canvasHeight.toPx() }
+        val offsetXPx = with(density) { ((maxWidth - canvasWidth) / 2f).toPx() }
+        val offsetYPx = with(density) { ((maxHeight - canvasHeight) / 2f).toPx() }
+        RulersOverlay(
+            offsetXPx = offsetXPx,
+            offsetYPx = offsetYPx,
+            canvasWidthPx = canvasWidthPx,
+            canvasHeightPx = canvasHeightPx,
+            slideCount = state.slideCount,
+        )
 
         Box(
             modifier = Modifier
@@ -71,12 +85,15 @@ fun CanvasViewport(
                 selectedLayerId = state.selectedLayerId,
                 canvasWidth = state.canvasWidth,
                 canvasHeight = state.canvasHeight,
+                slideCount = state.slideCount,
+                bgColorStart = state.bgColorStart,
+                bgColorEnd = state.bgColorEnd,
                 safeZoneVisible = state.safeZoneVisible,
-                splitGuidesVisible = state.splitGuidesVisible,
-                splitCount = state.splitCount,
+                guides = state.activeGuides,
                 onSelectLayer = onSelectLayer,
                 onTransform = onTransform,
                 onGestureEnd = onGestureEnd,
+                onEditText = onEditText,
             )
             if (state.layers.isEmpty()) {
                 Column(
@@ -96,7 +113,7 @@ fun CanvasViewport(
                 }
             }
             Text(
-                text = "${state.canvasWidth}×${state.canvasHeight}",
+                text = "${state.canvasWidth}×${state.canvasHeight} · ${state.slideCount} slides",
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.82f))

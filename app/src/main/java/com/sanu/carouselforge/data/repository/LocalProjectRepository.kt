@@ -110,6 +110,9 @@ class LocalProjectRepository(
             updatedAt = value.project.updatedAt,
             canvasWidth = value.project.canvasWidth,
             canvasHeight = value.project.canvasHeight,
+            slideCount = value.project.slideCount,
+            bgColorStart = value.project.bgColorStart,
+            bgColorEnd = value.project.bgColorEnd,
             layers = value.layers
                 .sortedBy(LayerEntity::zIndex)
                 .map(::layerEntityToDomain),
@@ -123,6 +126,9 @@ class LocalProjectRepository(
             updatedAt = updatedAt,
             canvasWidth = canvasWidth,
             canvasHeight = canvasHeight,
+            slideCount = slideCount,
+            bgColorStart = bgColorStart,
+            bgColorEnd = bgColorEnd,
         )
 
     private fun Layer.toEntity(projectId: String): LayerEntity =
@@ -139,6 +145,24 @@ class LocalProjectRepository(
             scale = scale,
             rotation = rotation,
             zIndex = zIndex,
+            textColor = textColor,
+            textSizeSp = textSizeSp,
+            fontWeight = fontWeight,
+            textAlign = textAlign.name,
+            fontFamily = fontFamily,
+            alpha = alpha,
+            cornerRadius = cornerRadius,
+            hasShadow = hasShadow,
+            cropLeft = cropLeft,
+            cropTop = cropTop,
+            cropRight = cropRight,
+            cropBottom = cropBottom,
+            brightness = brightness,
+            contrast = contrast,
+            saturation = saturation,
+            filterPreset = filterPreset,
+            shapeKind = shapeKind?.name,
+            fillColor = fillColor,
         )
 
     private fun layerEntityToDomain(value: LayerEntity): Layer =
@@ -154,6 +178,27 @@ class LocalProjectRepository(
             scale = value.scale,
             rotation = value.rotation,
             zIndex = value.zIndex,
+            textColor = value.textColor,
+            textSizeSp = value.textSizeSp,
+            fontWeight = value.fontWeight,
+            textAlign = runCatching { TextAlignment.valueOf(value.textAlign) }
+                .getOrDefault(TextAlignment.CENTER),
+            fontFamily = value.fontFamily,
+            alpha = value.alpha,
+            cornerRadius = value.cornerRadius,
+            hasShadow = value.hasShadow,
+            cropLeft = value.cropLeft,
+            cropTop = value.cropTop,
+            cropRight = value.cropRight,
+            cropBottom = value.cropBottom,
+            brightness = value.brightness,
+            contrast = value.contrast,
+            saturation = value.saturation,
+            filterPreset = value.filterPreset,
+            shapeKind = value.shapeKind?.let { kind ->
+                runCatching { ShapeKind.valueOf(kind) }.getOrNull()
+            },
+            fillColor = value.fillColor,
         )
 
     private fun summaryRowToDomain(value: ProjectSummaryRow): ProjectSummary =
@@ -164,6 +209,7 @@ class LocalProjectRepository(
             updatedAt = value.updatedAt,
             canvasWidth = value.canvasWidth,
             canvasHeight = value.canvasHeight,
+            slideCount = value.slideCount,
             layerCount = value.layerCount,
         )
 

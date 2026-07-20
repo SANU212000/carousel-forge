@@ -24,23 +24,33 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Collections
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PersonOutline
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,6 +72,7 @@ fun GalleryScreen(
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var renameTarget by remember { mutableStateOf<ProjectSummary?>(null) }
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -78,7 +89,13 @@ fun GalleryScreen(
             verticalArrangement = Arrangement.spacedBy(AppTheme.spacing.lg),
         ) {
             item { GalleryHero() }
-            item { TemplateSection() }
+            item {
+                TemplateSection(
+                    onUseTemplate = { template ->
+                        viewModel.createFromTemplate(template, onCreated = onOpenProject)
+                    },
+                )
+            }
             item {
                 SectionHeading(
                     title = "DRAFTS",
@@ -112,6 +129,8 @@ fun GalleryScreen(
                                 project = project,
                                 onOpen = { onOpenProject(project.id) },
                                 onDelete = { viewModel.deleteProject(project.id) },
+                                onRename = { renameTarget = project },
+                                onDuplicate = { viewModel.duplicateProject(project.id) },
                             )
                         }
                     }
@@ -125,7 +144,7 @@ fun GalleryScreen(
         )
 
         Button(
-            onClick = { viewModel.createProject(onOpenProject) },
+            onClick = { viewModel.createProject(onCreated = onOpenProject) },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = AppTheme.spacing.huge + AppTheme.spacing.sm)
@@ -172,6 +191,44 @@ fun GalleryScreen(
             }
         }
     }
+
+    renameTarget?.let { target ->
+        RenameDialog(
+            initialName = target.name,
+            onConfirm = { name ->
+                viewModel.renameProject(target.id, name)
+                renameTarget = null
+            },
+            onDismiss = { renameTarget = null },
+        )
+    }
+}
+
+@Composable
+private fun RenameDialog(
+    initialName: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember { mutableStateOf(initialName) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename project") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                singleLine = true,
+                label = { Text("Name") },
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(name) }, enabled = name.isNotBlank()) {
+                Text("Rename")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
@@ -268,13 +325,18 @@ private fun GalleryHero() {
 }
 
 @Composable
-private fun TemplateSection() {
+private fun TemplateSection(onUseTemplate: (TemplateCatalog.Template) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(AppTheme.spacing.md)) {
-        SectionHeading("TEMPLATES", "VIEW ALL", accentAction = true)
+        SectionHeading("TEMPLATES", "TAP TO USE", accentAction = true)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(AppTheme.spacing.sm)) {
-            item { TemplateCard("Glitch Drift", "1.2M USES", Icons.Default.AutoAwesome) }
-            item { TemplateCard("Macro Flow", "458K USES", Icons.Default.Tune) }
-            item { TemplateCard("Still Cut", "89K USES", Icons.Default.Image) }
+            items(TemplateCatalog.templates, key = { it.id }) { template ->
+                TemplateCard(
+                    title = template.title,
+                    uses = template.uses,
+                    icon = Icons.Default.AutoAwesome,
+                    onClick = { onUseTemplate(template) },
+                )
+            }
         }
     }
 }
@@ -308,13 +370,14 @@ private fun SectionHeading(
 }
 
 @Composable
-private fun TemplateCard(title: String, uses: String, icon: ImageVector) {
+private fun TemplateCard(title: String, uses: String, icon: ImageVector, onClick: () -> Unit) {
     val shape = RoundedCornerShape(AppTheme.spacing.xxs)
     Box(
         modifier = Modifier
             .width(AppTheme.spacing.huge + AppTheme.spacing.xxl)
             .aspectRatio(0.68f)
             .clip(shape)
+            .clickable(onClick = onClick)
             .background(
                 Brush.verticalGradient(
                     listOf(
@@ -354,7 +417,10 @@ private fun DraftCard(
     project: ProjectSummary,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
+    onRename: () -> Unit,
+    onDuplicate: () -> Unit,
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -400,13 +466,32 @@ private fun DraftCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    "${project.layerCount} layers · ${project.canvasWidth}×${project.canvasHeight}",
+                    "${project.slideCount} slides · ${project.canvasWidth}×${project.canvasHeight}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.DeleteOutline, contentDescription = "Delete project")
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Project options")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Rename") },
+                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                        onClick = { menuOpen = false; onRename() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Duplicate") },
+                        leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
+                        onClick = { menuOpen = false; onDuplicate() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete") },
+                        leadingIcon = { Icon(Icons.Default.DeleteOutline, contentDescription = null) },
+                        onClick = { menuOpen = false; onDelete() },
+                    )
+                }
             }
         }
     }

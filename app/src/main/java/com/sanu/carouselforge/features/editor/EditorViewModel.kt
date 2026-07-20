@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.sanu.carouselforge.core.error.AppError
 import com.sanu.carouselforge.core.error.ErrorObserver
 import com.sanu.carouselforge.core.error.LogcatErrorObserver
+import com.sanu.carouselforge.core.model.CanvasPreset
+import com.sanu.carouselforge.core.prefs.UserPreferencesRepository
 import com.sanu.carouselforge.data.repository.Layer
 import com.sanu.carouselforge.data.repository.LocalProjectRepository
 import com.sanu.carouselforge.data.repository.Project
@@ -12,15 +14,13 @@ import com.sanu.carouselforge.data.repository.ProjectRepository
 import com.sanu.carouselforge.features.editor.render.LayerModel
 import com.sanu.carouselforge.features.editor.render.LayerType
 import com.sanu.carouselforge.features.editor.render.TransformDelta
-import com.sanu.carouselforge.features.editor.snap.LayerBounds
+import com.sanu.carouselforge.features.editor.snap.GuideEngine
 import com.sanu.carouselforge.features.editor.snap.SnapEngine
 import java.util.UUID
-import kotlin.math.abs
-import kotlin.math.cos
-import kotlin.math.sin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -32,11 +32,20 @@ sealed interface EditorState {
         val gridSnapEnabled: Boolean,
         val canvasWidth: Int,
         val canvasHeight: Int,
+        val slideCount: Int,
+        val bgColorStart: Long = 0xFFFFFFFFL,
+        val bgColorEnd: Long? = null,
         val safeZoneVisible: Boolean = false,
-        val splitGuidesVisible: Boolean = false,
-        val splitCount: Int = 2,
+        val canUndo: Boolean = false,
+        val canRedo: Boolean = false,
+        val activeGuides: GuideEngine.GuideResult? = null,
         val notice: AppError? = null,
-    ) : EditorState
+    ) : EditorState {
+        /** Total logical canvas width across all connected slides. */
+        val totalWidth: Int get() = canvasWidth * slideCount
+
+        val selectedLayer: LayerModel? get() = layers.firstOrNull { it.id == selectedLayerId }
+    }
     data class Exporting(val progress: Float) : EditorState
     data class Error(val error: AppError) : EditorState
 }
@@ -44,14 +53,99 @@ sealed interface EditorState {
 class EditorViewModel(
     private val projectId: String,
     private val repository: ProjectRepository,
+    private val userPreferences: UserPreferencesRepository? = null,
     private val errorObserver: ErrorObserver = LogcatErrorObserver,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow<EditorState>(EditorState.Loading)
     val state: StateFlow<EditorState> = mutableState.asStateFlow()
     private var project: Project? = null
 
+    private val undoStack = ArrayDeque<HistoryEntry>()
+    private val redoStack = ArrayDeque<HistoryEntry>()
+    private var gestureRecorded = false
+
+    // Raw (un-snapped) finger position for the layer being dragged. Keeping it separate
+    // from the displayed position is what gives snapping single-threshold hysteresis.
+    private var dragRawX = 0f
+    private var dragRawY = 0f
+
+    private data class HistoryEntry(
+        val layers: List<LayerModel>,
+        val selectedLayerId: String?,
+        val canvasWidth: Int,
+        val canvasHeight: Int,
+        val slideCount: Int,
+        val bgColorStart: Long,
+        val bgColorEnd: Long?,
+    )
+
     init {
         loadProject()
+    }
+
+    private fun EditorState.Editing.toHistoryEntry() = HistoryEntry(
+        layers = layers,
+        selectedLayerId = selectedLayerId,
+        canvasWidth = canvasWidth,
+        canvasHeight = canvasHeight,
+        slideCount = slideCount,
+        bgColorStart = bgColorStart,
+        bgColorEnd = bgColorEnd,
+    )
+
+    private fun EditorState.Editing.applying(entry: HistoryEntry) = copy(
+        layers = entry.layers,
+        selectedLayerId = entry.selectedLayerId,
+        canvasWidth = entry.canvasWidth,
+        canvasHeight = entry.canvasHeight,
+        slideCount = entry.slideCount,
+        bgColorStart = entry.bgColorStart,
+        bgColorEnd = entry.bgColorEnd,
+    )
+
+    private fun recordHistory(current: EditorState.Editing) {
+        undoStack.addLast(current.toHistoryEntry())
+        while (undoStack.size > MAX_HISTORY) undoStack.removeFirst()
+        redoStack.clear()
+    }
+
+    /**
+     * Central path for every content edit: optionally records an undo checkpoint,
+     * applies the change, refreshes undo/redo availability, and autosaves.
+     */
+    private fun editWithHistory(
+        recordHistory: Boolean = true,
+        block: (EditorState.Editing) -> EditorState.Editing,
+    ) {
+        val current = mutableState.value as? EditorState.Editing ?: return
+        if (recordHistory) recordHistory(current)
+        mutableState.value = block(current).copy(
+            canUndo = undoStack.isNotEmpty(),
+            canRedo = redoStack.isNotEmpty(),
+        )
+        snapshotAndAutosave()
+    }
+
+    fun undo() {
+        val current = mutableState.value as? EditorState.Editing ?: return
+        val entry = undoStack.removeLastOrNull() ?: return
+        redoStack.addLast(current.toHistoryEntry())
+        mutableState.value = current.applying(entry).copy(
+            canUndo = undoStack.isNotEmpty(),
+            canRedo = redoStack.isNotEmpty(),
+        )
+        snapshotAndAutosave()
+    }
+
+    fun redo() {
+        val current = mutableState.value as? EditorState.Editing ?: return
+        val entry = redoStack.removeLastOrNull() ?: return
+        undoStack.addLast(current.toHistoryEntry())
+        mutableState.value = current.applying(entry).copy(
+            canUndo = undoStack.isNotEmpty(),
+            canRedo = redoStack.isNotEmpty(),
+        )
+        snapshotAndAutosave()
     }
 
     fun selectLayer(id: String) {
@@ -60,47 +154,74 @@ class EditorViewModel(
         }
     }
 
-    fun transformLayer(id: String, delta: TransformDelta) {
+    fun transformLayer(id: String, delta: TransformDelta, thresholdPx: Float = 0f) {
         mutableState.update { current ->
             if (current !is EditorState.Editing) return@update current
+            val layer = current.layers.firstOrNull { it.id == id } ?: return@update current
+            // Record one undo checkpoint per drag, only once real movement happens, and
+            // seed the raw-position tracker from the layer's current position.
+            if (!gestureRecorded) {
+                recordHistory(current)
+                gestureRecorded = true
+                dragRawX = layer.x
+                dragRawY = layer.y
+            }
+            dragRawX += delta.panX
+            dragRawY += delta.panY
+            val probe = layer.copy(
+                x = dragRawX,
+                y = dragRawY,
+                scale = (layer.scale * delta.zoom).coerceIn(MIN_SCALE, MAX_SCALE),
+                rotation = layer.rotation + delta.rotation,
+            )
+            val guides = GuideEngine.compute(
+                moving = CanvasTransforms.layerBounds(probe),
+                siblings = current.layers.filterNot { it.id == id }
+                    .map(CanvasTransforms::layerBounds),
+                totalWidth = current.totalWidth.toFloat(),
+                canvasHeight = current.canvasHeight.toFloat(),
+                cutLinesX = slideBoundaryXs(current),
+                thresholdPx = thresholdPx,
+            )
+            val snapped = probe.copy(
+                x = dragRawX + guides.translationXPx,
+                y = dragRawY + guides.translationYPx,
+            )
             current.copy(
-                layers = current.layers.map { layer ->
-                    if (layer.id != id) layer else layer.copy(
-                        x = layer.x + delta.panX,
-                        y = layer.y + delta.panY,
-                        scale = (layer.scale * delta.zoom).coerceIn(MIN_SCALE, MAX_SCALE),
-                        rotation = layer.rotation + delta.rotation,
-                    )
-                },
+                layers = current.layers.map { if (it.id == id) snapped else it },
+                activeGuides = guides.takeIf { it.didSnap || it.badges.isNotEmpty() },
             )
         }
     }
 
     fun finishGesture(id: String, thresholdPx: Float, gridSpacingPx: Float) {
-        mutableState.update { current ->
-            if (current !is EditorState.Editing) return@update current
-            val moving = current.layers.firstOrNull { it.id == id } ?: return@update current
+        // History was recorded on the drag's first move, so it undoes as one step.
+        gestureRecorded = false
+        editWithHistory(recordHistory = false) { current ->
+            val moving = current.layers.firstOrNull { it.id == id } ?: return@editWithHistory current
             val result = SnapEngine.resolve(
-                moving = layerBounds(moving),
-                siblings = current.layers.filterNot { it.id == id }.map(::layerBounds),
+                moving = CanvasTransforms.layerBounds(moving),
+                siblings = current.layers.filterNot { it.id == id }
+                    .map(CanvasTransforms::layerBounds),
                 thresholdPx = thresholdPx,
                 gridSpacingPx = gridSpacingPx.takeIf { current.gridSnapEnabled },
+                snapLinesX = slideBoundaryXs(current),
             )
             current.copy(
                 layers = current.layers.map { layer ->
                     if (layer.id != id) return@map layer
-                    clampToCanvas(
+                    CanvasTransforms.clampToCanvas(
                         layer = layer.copy(
                             x = layer.x + result.translationXPx,
                             y = layer.y + result.translationYPx,
                         ),
-                        canvasWidth = current.canvasWidth.toFloat(),
+                        totalWidth = current.totalWidth.toFloat(),
                         canvasHeight = current.canvasHeight.toFloat(),
                     )
                 },
+                activeGuides = null,
             )
         }
-        snapshotAndAutosave()
     }
 
     fun setGridSnapEnabled(enabled: Boolean) {
@@ -115,120 +236,154 @@ class EditorViewModel(
         }
     }
 
-    fun setSplitGuidesVisible(visible: Boolean) {
-        mutableState.update { current ->
-            if (current is EditorState.Editing) current.copy(splitGuidesVisible = visible) else current
+    /**
+     * Applies a new per-slide ratio to every slide at once. Each layer keeps its
+     * fractional center within the total canvas and its own size/scale, then is
+     * clamped back inside the reshaped bounds.
+     */
+    fun setRatio(preset: CanvasPreset) {
+        val current = mutableState.value as? EditorState.Editing ?: return
+        if (current.canvasWidth == preset.width && current.canvasHeight == preset.height) return
+        editWithHistory { editing ->
+            editing.copy(
+                canvasWidth = preset.width,
+                canvasHeight = preset.height,
+                layers = CanvasTransforms.reflowForRatio(
+                    layers = editing.layers,
+                    oldTotalWidth = editing.totalWidth.toFloat(),
+                    oldHeight = editing.canvasHeight.toFloat(),
+                    newTotalWidth = (preset.width * editing.slideCount).toFloat(),
+                    newHeight = preset.height.toFloat(),
+                ),
+            )
         }
     }
 
-    fun setSplitCount(count: Int) {
-        mutableState.update { current ->
-            if (current is EditorState.Editing) {
-                current.copy(splitCount = count.coerceIn(MIN_SPLIT_COUNT, MAX_SPLIT_COUNT))
-            } else {
-                current
-            }
+    /** Grows or shrinks the connected carousel. Shrinking clamps layers back in bounds. */
+    fun setSlideCount(count: Int) {
+        val current = mutableState.value as? EditorState.Editing ?: return
+        val clamped = count.coerceIn(MIN_SLIDE_COUNT, MAX_SLIDE_COUNT)
+        if (clamped == current.slideCount) return
+        editWithHistory { editing ->
+            val newTotalWidth = (editing.canvasWidth * clamped).toFloat()
+            val canvasHeight = editing.canvasHeight.toFloat()
+            editing.copy(
+                slideCount = clamped,
+                layers = if (clamped < editing.slideCount) {
+                    editing.layers.map {
+                        CanvasTransforms.clampToCanvas(it, newTotalWidth, canvasHeight)
+                    }
+                } else {
+                    editing.layers
+                },
+            )
         }
+    }
+
+    fun setBackground(colorStart: Long, colorEnd: Long?) {
+        editWithHistory { it.copy(bgColorStart = colorStart, bgColorEnd = colorEnd) }
     }
 
     fun addImage(uri: String, aspectRatio: Float = 1f) {
-        val current = mutableState.value as? EditorState.Editing ?: return
-        val (width, height) = containedLayerSize(
-            aspectRatio = aspectRatio,
-            canvasWidth = current.canvasWidth.toFloat(),
-            canvasHeight = current.canvasHeight.toFloat(),
-            coverage = DEFAULT_LAYER_COVERAGE,
-        )
-        val layer = LayerModel(
-            id = UUID.randomUUID().toString(),
-            type = LayerType.IMAGE,
-            imageUri = uri,
-            x = (current.canvasWidth - width) / 2f,
-            y = (current.canvasHeight - height) / 2f,
-            width = width,
-            height = height,
-            zIndex = current.layers.size,
-        )
-        mutableState.value = current.copy(
-            layers = current.layers + layer,
-            selectedLayerId = layer.id,
-        )
-        snapshotAndAutosave()
+        editWithHistory { current ->
+            val (width, height) = containedLayerSize(
+                aspectRatio = aspectRatio,
+                canvasWidth = current.canvasWidth.toFloat(),
+                canvasHeight = current.canvasHeight.toFloat(),
+                coverage = DEFAULT_LAYER_COVERAGE,
+            )
+            val layer = LayerModel(
+                id = UUID.randomUUID().toString(),
+                type = LayerType.IMAGE,
+                imageUri = uri,
+                x = (current.canvasWidth - width) / 2f,
+                y = (current.canvasHeight - height) / 2f,
+                width = width,
+                height = height,
+                zIndex = current.layers.size,
+            )
+            current.copy(
+                layers = current.layers + layer,
+                selectedLayerId = layer.id,
+            )
+        }
     }
 
     fun replaceSelectedImage(uri: String, aspectRatio: Float = 1f) {
-        val current = mutableState.value as? EditorState.Editing ?: return
-        val selectedId = current.selectedLayerId ?: return
-        mutableState.value = current.copy(
-            layers = current.layers.map { layer ->
-                if (layer.id == selectedId && layer.type == LayerType.IMAGE) {
-                    val (width, height) = containedLayerSize(
-                        aspectRatio = aspectRatio,
-                        canvasWidth = current.canvasWidth.toFloat(),
-                        canvasHeight = current.canvasHeight.toFloat(),
-                        coverage = DEFAULT_LAYER_COVERAGE,
-                    )
-                    layer.copy(
-                        imageUri = uri,
-                        width = width,
-                        height = height,
-                        x = (current.canvasWidth - width) / 2f,
-                        y = (current.canvasHeight - height) / 2f,
-                        scale = 1f,
-                        rotation = 0f,
-                    )
-                } else {
-                    layer
-                }
-            },
-        )
-        snapshotAndAutosave()
+        val selectedId = (mutableState.value as? EditorState.Editing)?.selectedLayerId ?: return
+        editWithHistory { current ->
+            current.copy(
+                layers = current.layers.map { layer ->
+                    if (layer.id == selectedId &&
+                        (layer.type == LayerType.IMAGE || layer.type == LayerType.STICKER)
+                    ) {
+                        val (width, height) = containedLayerSize(
+                            aspectRatio = aspectRatio,
+                            canvasWidth = current.canvasWidth.toFloat(),
+                            canvasHeight = current.canvasHeight.toFloat(),
+                            coverage = DEFAULT_LAYER_COVERAGE,
+                        )
+                        layer.copy(
+                            imageUri = uri,
+                            width = width,
+                            height = height,
+                            x = (current.canvasWidth - width) / 2f,
+                            y = (current.canvasHeight - height) / 2f,
+                            scale = 1f,
+                            rotation = 0f,
+                        )
+                    } else {
+                        layer
+                    }
+                },
+            )
+        }
     }
 
     fun fitSelectedLayer() {
-        val current = mutableState.value as? EditorState.Editing ?: return
-        val selectedId = current.selectedLayerId ?: return
-        mutableState.value = current.copy(
-            layers = current.layers.map { layer ->
-                if (layer.id != selectedId) return@map layer
-                val (width, height) = containedLayerSize(
-                    aspectRatio = layer.width / layer.height,
-                    canvasWidth = current.canvasWidth.toFloat(),
-                    canvasHeight = current.canvasHeight.toFloat(),
-                    coverage = FIT_LAYER_COVERAGE,
-                )
-                layer.copy(
-                    x = (current.canvasWidth - width) / 2f,
-                    y = (current.canvasHeight - height) / 2f,
-                    width = width,
-                    height = height,
-                    scale = 1f,
-                    rotation = 0f,
-                )
-            },
-        )
-        snapshotAndAutosave()
+        val selectedId = (mutableState.value as? EditorState.Editing)?.selectedLayerId ?: return
+        editWithHistory { current ->
+            current.copy(
+                layers = current.layers.map { layer ->
+                    if (layer.id != selectedId) return@map layer
+                    val (width, height) = containedLayerSize(
+                        aspectRatio = layer.width / layer.height,
+                        canvasWidth = current.canvasWidth.toFloat(),
+                        canvasHeight = current.canvasHeight.toFloat(),
+                        coverage = FIT_LAYER_COVERAGE,
+                    )
+                    layer.copy(
+                        x = (current.canvasWidth - width) / 2f,
+                        y = (current.canvasHeight - height) / 2f,
+                        width = width,
+                        height = height,
+                        scale = 1f,
+                        rotation = 0f,
+                    )
+                },
+            )
+        }
     }
 
     fun moveSelectedLayer(forward: Boolean) {
         val current = mutableState.value as? EditorState.Editing ?: return
         val selectedId = current.selectedLayerId ?: return
-        val ordered = current.layers.sortedBy(LayerModel::zIndex).toMutableList()
-        val index = ordered.indexOfFirst { it.id == selectedId }
-        if (index < 0) return
-        val target = (index + if (forward) 1 else -1).coerceIn(ordered.indices)
-        if (target == index) return
-        val moved = ordered.removeAt(index)
-        ordered.add(target, moved)
-        mutableState.value = current.copy(
-            layers = ordered.mapIndexed { zIndex, layer -> layer.copy(zIndex = zIndex) },
-        )
-        snapshotAndAutosave()
+        editWithHistory { editing ->
+            val ordered = editing.layers.sortedBy(LayerModel::zIndex).toMutableList()
+            val index = ordered.indexOfFirst { it.id == selectedId }
+            if (index < 0) return@editWithHistory editing
+            val target = (index + if (forward) 1 else -1).coerceIn(ordered.indices)
+            if (target == index) return@editWithHistory editing
+            val moved = ordered.removeAt(index)
+            ordered.add(target, moved)
+            editing.copy(
+                layers = ordered.mapIndexed { zIndex, layer -> layer.copy(zIndex = zIndex) },
+            )
+        }
     }
 
     fun removeLayer(id: String) {
-        mutableState.update { current ->
-            if (current !is EditorState.Editing) return@update current
+        editWithHistory { current ->
             current.copy(
                 layers = current.layers
                     .filterNot { it.id == id }
@@ -236,7 +391,146 @@ class EditorViewModel(
                 selectedLayerId = current.selectedLayerId.takeUnless { it == id },
             )
         }
-        snapshotAndAutosave()
+    }
+
+    fun addText(text: String = "Tap to edit") {
+        editWithHistory { current ->
+            val width = current.canvasWidth * TEXT_LAYER_WIDTH_FRACTION
+            val height = current.canvasHeight * TEXT_LAYER_HEIGHT_FRACTION
+            val layer = LayerModel(
+                id = UUID.randomUUID().toString(),
+                type = LayerType.TEXT,
+                text = text,
+                x = (current.canvasWidth - width) / 2f,
+                y = (current.canvasHeight - height) / 2f,
+                width = width,
+                height = height,
+                textSizeSp = current.canvasWidth * DEFAULT_TEXT_SIZE_FRACTION,
+                zIndex = current.layers.size,
+            )
+            current.copy(layers = current.layers + layer, selectedLayerId = layer.id)
+        }
+    }
+
+    fun addShape(kind: com.sanu.carouselforge.data.repository.ShapeKind, fillColor: Long) {
+        editWithHistory { current ->
+            val size = current.canvasWidth * SHAPE_LAYER_FRACTION
+            val layer = LayerModel(
+                id = UUID.randomUUID().toString(),
+                type = LayerType.SHAPE,
+                shapeKind = kind,
+                fillColor = fillColor,
+                x = (current.canvasWidth - size) / 2f,
+                y = (current.canvasHeight - size) / 2f,
+                width = size,
+                height = size,
+                zIndex = current.layers.size,
+            )
+            current.copy(layers = current.layers + layer, selectedLayerId = layer.id)
+        }
+    }
+
+    fun addSticker(uri: String, aspectRatio: Float = 1f) {
+        editWithHistory { current ->
+            val (width, height) = containedLayerSize(
+                aspectRatio = aspectRatio,
+                canvasWidth = current.canvasWidth.toFloat(),
+                canvasHeight = current.canvasHeight.toFloat(),
+                coverage = STICKER_LAYER_COVERAGE,
+            )
+            val layer = LayerModel(
+                id = UUID.randomUUID().toString(),
+                type = LayerType.STICKER,
+                imageUri = uri,
+                x = (current.canvasWidth - width) / 2f,
+                y = (current.canvasHeight - height) / 2f,
+                width = width,
+                height = height,
+                zIndex = current.layers.size,
+            )
+            current.copy(layers = current.layers + layer, selectedLayerId = layer.id)
+        }
+    }
+
+    /**
+     * Applies a style change to the selected layer. [pushHistory] should be true for the
+     * first change of an editing session (a slider drag, a text edit) and false for the
+     * continuous updates that follow, so the whole session collapses into one undo step.
+     */
+    fun updateSelectedLayer(pushHistory: Boolean = true, transform: (LayerModel) -> LayerModel) {
+        val selectedId = (mutableState.value as? EditorState.Editing)?.selectedLayerId ?: return
+        editWithHistory(recordHistory = pushHistory) { current ->
+            current.copy(
+                layers = current.layers.map { if (it.id == selectedId) transform(it) else it },
+            )
+        }
+    }
+
+    fun duplicateSelectedLayer() {
+        val current = mutableState.value as? EditorState.Editing ?: return
+        val selected = current.selectedLayer ?: return
+        editWithHistory { editing ->
+            val copy = selected.copy(
+                id = UUID.randomUUID().toString(),
+                x = selected.x + DUPLICATE_OFFSET,
+                y = selected.y + DUPLICATE_OFFSET,
+                zIndex = editing.layers.size,
+            )
+            editing.copy(layers = editing.layers + copy, selectedLayerId = copy.id)
+        }
+    }
+
+    /** Places a copy of the selected layer at the same in-slide position on every slide. */
+    fun copySelectedToAllSlides() {
+        val current = mutableState.value as? EditorState.Editing ?: return
+        val selected = current.selectedLayer ?: return
+        if (current.slideCount <= 1) return
+        // The slide the selected layer currently sits in (by its center).
+        val originSlide = ((selected.x + selected.width / 2f) / current.canvasWidth)
+            .toInt()
+            .coerceIn(0, current.slideCount - 1)
+        editWithHistory { editing ->
+            val additions = (0 until editing.slideCount)
+                .filter { it != originSlide }
+                .mapIndexed { offsetIndex, slide ->
+                    selected.copy(
+                        id = UUID.randomUUID().toString(),
+                        x = selected.x + (slide - originSlide) * editing.canvasWidth,
+                        zIndex = editing.layers.size + offsetIndex,
+                    )
+                }
+            editing.copy(layers = editing.layers + additions)
+        }
+    }
+
+    /** Reorders layers to match the given top-to-bottom (highest-z first) id list. */
+    fun reorderLayers(idsTopToBottom: List<String>) {
+        editWithHistory { current ->
+            val byId = current.layers.associateBy { it.id }
+            val bottomToTop = idsTopToBottom.asReversed().mapNotNull { byId[it] }
+            if (bottomToTop.size != current.layers.size) return@editWithHistory current
+            current.copy(
+                layers = bottomToTop.mapIndexed { zIndex, layer -> layer.copy(zIndex = zIndex) },
+            )
+        }
+    }
+
+    /**
+     * Immediately persists any pending edits (canceling the debounced autosave) so a
+     * navigation to export never races the 400ms save window.
+     */
+    fun flushPendingSave(onFlushed: () -> Unit) {
+        val snapshot = buildSnapshot()
+        if (snapshot == null) {
+            onFlushed()
+            return
+        }
+        project = snapshot
+        viewModelScope.launch {
+            runCatching { repository.saveProject(snapshot) }
+                .onFailure { errorObserver.record(AppError.StorageError(it)) }
+            onFlushed()
+        }
     }
 
     private fun loadProject() {
@@ -244,12 +538,16 @@ class EditorViewModel(
             try {
                 val loaded = repository.getProject(projectId)
                 project = loaded
+                val gridDefault = userPreferences?.preferences?.first()?.gridEnabledByDefault ?: true
                 mutableState.value = EditorState.Editing(
                     layers = loaded.layers.map(::layerModel),
                     selectedLayerId = null,
-                    gridSnapEnabled = true,
+                    gridSnapEnabled = gridDefault,
                     canvasWidth = loaded.canvasWidth,
                     canvasHeight = loaded.canvasHeight,
+                    slideCount = loaded.slideCount,
+                    bgColorStart = loaded.bgColorStart,
+                    bgColorEnd = loaded.bgColorEnd,
                 )
             } catch (error: Exception) {
                 val appError = AppError.StorageError(error)
@@ -259,13 +557,22 @@ class EditorViewModel(
         }
     }
 
-    private fun snapshotAndAutosave() {
-        val editing = mutableState.value as? EditorState.Editing ?: return
-        val previous = project ?: return
-        val snapshot = previous.copy(
+    private fun buildSnapshot(): Project? {
+        val editing = mutableState.value as? EditorState.Editing ?: return null
+        val previous = project ?: return null
+        return previous.copy(
             updatedAt = System.currentTimeMillis(),
+            canvasWidth = editing.canvasWidth,
+            canvasHeight = editing.canvasHeight,
+            slideCount = editing.slideCount,
+            bgColorStart = editing.bgColorStart,
+            bgColorEnd = editing.bgColorEnd,
             layers = editing.layers.map(::domainLayer),
         )
+    }
+
+    private fun snapshotAndAutosave() {
+        val snapshot = buildSnapshot() ?: return
         project = snapshot
         val localRepository = repository as? LocalProjectRepository
         if (localRepository != null) {
@@ -282,8 +589,8 @@ class EditorViewModel(
         return LayerModel(
             id = layer.id,
             type = when (layer.type) {
-                com.sanu.carouselforge.data.repository.LayerType.IMAGE,
-                com.sanu.carouselforge.data.repository.LayerType.STICKER -> LayerType.IMAGE
+                com.sanu.carouselforge.data.repository.LayerType.IMAGE -> LayerType.IMAGE
+                com.sanu.carouselforge.data.repository.LayerType.STICKER -> LayerType.STICKER
                 com.sanu.carouselforge.data.repository.LayerType.TEXT -> LayerType.TEXT
                 com.sanu.carouselforge.data.repository.LayerType.SHAPE -> LayerType.SHAPE
             },
@@ -296,6 +603,24 @@ class EditorViewModel(
             scale = layer.scale,
             rotation = layer.rotation,
             zIndex = layer.zIndex,
+            textColor = layer.textColor,
+            textSizeSp = layer.textSizeSp,
+            fontWeight = layer.fontWeight,
+            textAlign = layer.textAlign,
+            fontFamily = layer.fontFamily,
+            alpha = layer.alpha,
+            cornerRadius = layer.cornerRadius,
+            hasShadow = layer.hasShadow,
+            cropLeft = layer.cropLeft,
+            cropTop = layer.cropTop,
+            cropRight = layer.cropRight,
+            cropBottom = layer.cropBottom,
+            brightness = layer.brightness,
+            contrast = layer.contrast,
+            saturation = layer.saturation,
+            filterPreset = layer.filterPreset,
+            shapeKind = layer.shapeKind,
+            fillColor = layer.fillColor,
         )
     }
 
@@ -303,6 +628,7 @@ class EditorViewModel(
         id = layer.id,
         type = when (layer.type) {
             LayerType.IMAGE -> com.sanu.carouselforge.data.repository.LayerType.IMAGE
+            LayerType.STICKER -> com.sanu.carouselforge.data.repository.LayerType.STICKER
             LayerType.TEXT -> com.sanu.carouselforge.data.repository.LayerType.TEXT
             LayerType.SHAPE -> com.sanu.carouselforge.data.repository.LayerType.SHAPE
         },
@@ -315,28 +641,28 @@ class EditorViewModel(
         scale = layer.scale,
         rotation = layer.rotation,
         zIndex = layer.zIndex,
+        textColor = layer.textColor,
+        textSizeSp = layer.textSizeSp,
+        fontWeight = layer.fontWeight,
+        textAlign = layer.textAlign,
+        fontFamily = layer.fontFamily,
+        alpha = layer.alpha,
+        cornerRadius = layer.cornerRadius,
+        hasShadow = layer.hasShadow,
+        cropLeft = layer.cropLeft,
+        cropTop = layer.cropTop,
+        cropRight = layer.cropRight,
+        cropBottom = layer.cropBottom,
+        brightness = layer.brightness,
+        contrast = layer.contrast,
+        saturation = layer.saturation,
+        filterPreset = layer.filterPreset,
+        shapeKind = layer.shapeKind,
+        fillColor = layer.fillColor,
     )
 
-    private fun layerBounds(layer: LayerModel): LayerBounds {
-        val radians = Math.toRadians(layer.rotation.toDouble())
-        val scaledWidth = layer.width * layer.scale
-        val scaledHeight = layer.height * layer.scale
-        val rotatedWidth = (
-            abs(scaledWidth * cos(radians)) + abs(scaledHeight * sin(radians))
-            ).toFloat()
-        val rotatedHeight = (
-            abs(scaledWidth * sin(radians)) + abs(scaledHeight * cos(radians))
-            ).toFloat()
-        val centerX = layer.x + layer.width / 2f
-        val centerY = layer.y + layer.height / 2f
-        return LayerBounds(
-            id = layer.id,
-            left = centerX - rotatedWidth / 2f,
-            top = centerY - rotatedHeight / 2f,
-            right = centerX + rotatedWidth / 2f,
-            bottom = centerY + rotatedHeight / 2f,
-        )
-    }
+    private fun slideBoundaryXs(editing: EditorState.Editing): List<Float> =
+        (1 until editing.slideCount).map { (it * editing.canvasWidth).toFloat() }
 
     private fun containedLayerSize(
         aspectRatio: Float,
@@ -354,41 +680,19 @@ class EditorViewModel(
         }
     }
 
-    private fun clampToCanvas(
-        layer: LayerModel,
-        canvasWidth: Float,
-        canvasHeight: Float,
-    ): LayerModel {
-        val bounds = layerBounds(layer)
-        val renderedWidth = bounds.right - bounds.left
-        val renderedHeight = bounds.bottom - bounds.top
-        val x = if (renderedWidth <= canvasWidth) {
-            layer.x + when {
-                bounds.left < 0f -> -bounds.left
-                bounds.right > canvasWidth -> canvasWidth - bounds.right
-                else -> 0f
-            }
-        } else {
-            (canvasWidth - layer.width) / 2f
-        }
-        val y = if (renderedHeight <= canvasHeight) {
-            layer.y + when {
-                bounds.top < 0f -> -bounds.top
-                bounds.bottom > canvasHeight -> canvasHeight - bounds.bottom
-                else -> 0f
-            }
-        } else {
-            (canvasHeight - layer.height) / 2f
-        }
-        return layer.copy(x = x, y = y)
-    }
-
     private companion object {
         const val MIN_SCALE = 0.1f
         const val MAX_SCALE = 8f
         const val DEFAULT_LAYER_COVERAGE = 0.72f
         const val FIT_LAYER_COVERAGE = 0.9f
-        const val MIN_SPLIT_COUNT = 2
-        const val MAX_SPLIT_COUNT = 9
+        const val STICKER_LAYER_COVERAGE = 0.4f
+        const val TEXT_LAYER_WIDTH_FRACTION = 0.8f
+        const val TEXT_LAYER_HEIGHT_FRACTION = 0.16f
+        const val DEFAULT_TEXT_SIZE_FRACTION = 0.08f
+        const val SHAPE_LAYER_FRACTION = 0.4f
+        const val DUPLICATE_OFFSET = 24f
+        const val MIN_SLIDE_COUNT = 1
+        const val MAX_SLIDE_COUNT = 10
+        const val MAX_HISTORY = 30
     }
 }

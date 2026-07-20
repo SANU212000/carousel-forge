@@ -5,17 +5,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -37,6 +33,8 @@ import com.sanu.carouselforge.features.export.ExportScreen
 import com.sanu.carouselforge.features.export.ExportViewModel
 import com.sanu.carouselforge.features.gallery.GalleryScreen
 import com.sanu.carouselforge.features.gallery.GalleryViewModel
+import com.sanu.carouselforge.features.settings.SettingsScreen
+import com.sanu.carouselforge.features.settings.SettingsViewModel
 
 @Composable
 fun CarouselForgeNavGraph(
@@ -46,6 +44,7 @@ fun CarouselForgeNavGraph(
     val context = LocalContext.current
     val app = context.applicationContext as CarouselForgeApp
     val repository = app.appModule.projectRepository
+    val userPreferences = app.appModule.userPreferences
     val exportEngine = remember(context) { ExportEngine(context) }
 
     NavHost(
@@ -54,8 +53,10 @@ fun CarouselForgeNavGraph(
         modifier = modifier,
     ) {
         composable<GalleryRoute> {
-            val factory = remember(repository) {
-                viewModelFactory { initializer { GalleryViewModel(repository) } }
+            val factory = remember(repository, userPreferences) {
+                viewModelFactory {
+                    initializer { GalleryViewModel(repository, userPreferences) }
+                }
             }
             val viewModel: GalleryViewModel = viewModel(factory = factory)
             GalleryScreen(
@@ -66,9 +67,11 @@ fun CarouselForgeNavGraph(
         }
         composable<EditorRoute> { entry ->
             val route = entry.toRoute<EditorRoute>()
-            val factory = remember(route.projectId, repository) {
+            val factory = remember(route.projectId, repository, userPreferences) {
                 viewModelFactory {
-                    initializer { EditorViewModel(route.projectId, repository) }
+                    initializer {
+                        EditorViewModel(route.projectId, repository, userPreferences)
+                    }
                 }
             }
             val viewModel: EditorViewModel = viewModel(
@@ -105,10 +108,10 @@ fun CarouselForgeNavGraph(
         }
         composable<ExportRoute> { entry ->
             val route = entry.toRoute<ExportRoute>()
-            val factory = remember(route.projectId, repository, exportEngine) {
+            val factory = remember(route.projectId, repository, exportEngine, userPreferences) {
                 viewModelFactory {
                     initializer {
-                        ExportViewModel(route.projectId, repository, exportEngine)
+                        ExportViewModel(route.projectId, repository, exportEngine, userPreferences)
                     }
                 }
             }
@@ -119,28 +122,11 @@ fun CarouselForgeNavGraph(
             ExportScreen(viewModel = viewModel, onBack = navController::popBackStack)
         }
         composable<SettingsRoute> {
-            SettingsScreen(onBack = navController::popBackStack)
+            val factory = remember(userPreferences) {
+                viewModelFactory { initializer { SettingsViewModel(userPreferences) } }
+            }
+            val viewModel: SettingsViewModel = viewModel(factory = factory)
+            SettingsScreen(viewModel = viewModel, onBack = navController::popBackStack)
         }
-    }
-}
-
-@Composable
-private fun SettingsScreen(
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(AppTheme.spacing.lg),
-        verticalArrangement = Arrangement.spacedBy(
-            AppTheme.spacing.md,
-            Alignment.CenterVertically,
-        ),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text("Settings")
-        Text("Grid snapping is enabled by default for new editor sessions.")
-        Button(onClick = onBack) { Text("Back") }
     }
 }
